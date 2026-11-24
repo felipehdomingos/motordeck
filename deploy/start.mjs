@@ -9,12 +9,12 @@ function isHttpsOrigin(value) {
   }
 }
 
-if (!['stage', 'production'].includes(APP_ENV) ||
+if (APP_ENV !== 'production' ||
     !isHttpsOrigin(APP_ORIGIN) || !isHttpsOrigin(SUPABASE_URL) ||
     !SUPABASE_SECRET_KEY?.startsWith('sb_secret_') ||
     !ADMIN_USERNAME || ADMIN_USERNAME.includes(':') ||
     !ADMIN_PASSWORD || ADMIN_PASSWORD.length < 24) {
-  console.error('Configure APP_ENV, APP_ORIGIN, SUPABASE_URL, SUPABASE_SECRET_KEY, ADMIN_USERNAME e ADMIN_PASSWORD. Consulte deploy/README.md.');
+  console.error('Configure APP_ENV, APP_ORIGIN, SUPABASE_URL, SUPABASE_SECRET_KEY, ADMIN_USERNAME e ADMIN_PASSWORD. Consulte a seção Produção do README.md.');
   process.exit(1);
 }
 

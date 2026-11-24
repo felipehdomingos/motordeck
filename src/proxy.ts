@@ -4,11 +4,9 @@ import { adminChallenge, hasAdminAccess } from '@/lib/admin-access';
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const admin = path === '/admin' || path.startsWith('/admin/') || path.startsWith('/api/admin/');
-  const stagePrivate = process.env.APP_ENV === 'stage' && path !== '/api/health';
-  if ((admin || stagePrivate) && !hasAdminAccess(request.headers)) return adminChallenge();
+  if (admin && !hasAdminAccess(request.headers)) return adminChallenge();
   const response = NextResponse.next();
-  if (admin || process.env.APP_ENV === 'stage') response.headers.set('Cache-Control', 'private, no-store');
-  if (process.env.APP_ENV === 'stage') response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+  if (admin) response.headers.set('Cache-Control', 'private, no-store');
   return response;
 }
 
