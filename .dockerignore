@@ -1,0 +1,11 @@
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!next.config.ts
+!src/
+!src/**
+!public/
+!public/**
+!deploy/
+!deploy/start.mjs
