@@ -48,7 +48,7 @@ function saveRecord(record: LocalVehicle) {
    body: JSON.stringify({ record }),
  });
 }
-export default function AdminDashboard({ environment, plateLookupEnabled }: { environment: string; plateLookupEnabled: boolean }){
+export default function AdminDashboard({ plateLookupEnabled }: { plateLookupEnabled: boolean }){
  const [form,setForm]=useState<VehicleFields>(blank);const [items,setItems]=useState<LocalVehicle[]>([]);const [ocrFile,setOcrFile]=useState<File|null>(null);const [ocrPreview,setOcrPreview]=useState('');const [raw,setRaw]=useState('');const [busy,setBusy]=useState(false);const [message,setMessage]=useState('');const [editing,setEditing]=useState<string|null>(null);
  const [plateLookup,setPlateLookup]=useState<PlateLookup|null>(null);
  const [plateMessage,setPlateMessage]=useState('');
@@ -137,7 +137,7 @@ export default function AdminDashboard({ environment, plateLookupEnabled }: { en
      setMessage(error instanceof Error?error.message:'Não foi possível excluir o veículo.');
    } finally { setBusy(false); }
  }
- return <section className="container section admin-motordeck"><div className="admin-head"><div><span className="eyebrow">MotorDeck / {environment}</span><h1>Cadastro de veículos</h1><p>Consulte a placa e revise os dados antes de publicar o anúncio.</p></div><Link className="button button-outline" href="/veiculos">Ver catálogo <ChevronRight size={17}/></Link></div>
+ return <section className="container section admin-motordeck"><div className="admin-head"><div><span className="eyebrow">MotorDeck / PRODUÇÃO</span><h1>Cadastro de veículos</h1><p>Consulte a placa e revise os dados antes de publicar o anúncio.</p></div><Link className="button button-outline" href="/veiculos">Ver catálogo <ChevronRight size={17}/></Link></div>
  <div className="admin-layout"><div className="admin-form-panel"><div className="admin-step"><span>01</span><div><h2>Consultar pela placa</h2></div></div>
  <label className="admin-field">Placa<input value={form.plate} maxLength={10} disabled={busy} onChange={e=>changePlate(e.target.value)}/></label>
  <div className="admin-actions"><button type="button" className="button" disabled={busy||!plateLookupEnabled||!form.plate.trim()} onClick={lookupPlate}>Consultar placa</button></div>
