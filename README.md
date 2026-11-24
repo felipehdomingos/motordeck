@@ -58,32 +58,32 @@ O primeiro `npm install` bem-sucedido deve gerar o `package-lock.json`; mantenha
 
 - `src/app`: páginas, layout, estilos, metadados e regras de indexação.
 - `src/components`: cabeçalho, rodapé, cartões, filtros e formulário reutilizável.
-- `src/lib/data.ts`: dados de demonstração explicitamente fictícios e utilitários de contato.
+- `src/lib/data.ts`: tipos de veículo e utilitários de contato.
 - `.env.example`: variáveis previstas, sem credenciais.
 
 ### Implementado nesta versão
 
 - Início, catálogo, filtros por marca/preço/ano/tipo e páginas individuais.
 - Serviços de intermediação e consórcio, sobre, contato, vídeos e privacidade.
-- Estados de disponibilidade, reservado e vendido nos exemplos do catálogo.
+- Estados de disponibilidade, reservado e vendido nos anúncios gravados no Supabase.
 - Formulários com validação HTML e preparação de mensagem revisável no WhatsApp. Não armazenam leads nem simulam envio.
 - Layout responsivo, componentes compartilhados, navegação por teclado e fontes locais após instalação.
 - Placeholders identificados para imagens originais; nenhuma fotografia, logotipo ou avaliação inventada.
-- Área administrativa informativa, sem login fictício nem acesso a operações.
+- Painel administrativo autenticado com cadastro de veículos e fotos no Supabase.
 
 ### Pendências para uma aplicação administrável
 
 - Aprovar e validar visualmente a interface em execução.
 - Configurar os projetos PostgreSQL de stage e produção e aplicar a migração do cadastro.
 - Implementar sessão segura, autorização no servidor e políticas RLS para proprietário e conteúdo publicado.
-- Substituir os exemplos por consultas persistentes; implementar CRUD, uploads e gerenciamento de textos, depoimentos e solicitações.
+- Gerenciar textos, depoimentos e solicitações.
 - Implementar recepção de formulários com validação no servidor, proteção contra abuso e persistência segura.
 - Receber logotipo, fotos, anúncios, vídeos, trajetória, depoimentos autorizados e URL do Google.
 - Confirmar administradora e informações comerciais do consórcio e revisar a política de privacidade.
 - Criar sitemap e ativar indexação somente com conteúdo real e domínio confirmado. A prévia possui `noindex` e bloqueio em `robots.txt`.
 - Executar TypeScript, lint, build, testes de filtros, formulários, autorização, uploads e revisão em celular antes de publicar.
 
-O cadastro usa PostgreSQL no Supabase. Consulte o [guia de implantação de stage e produção](./deploy/README.md).
+O cadastro usa PostgreSQL no Supabase. Consulte o [guia de implantação de stage e produção](#stage-e-produção).
 
 ## Diretrizes
 
@@ -95,6 +95,41 @@ O cadastro usa PostgreSQL no Supabase. Consulte o [guia de implantação de stag
 - Manter credenciais e dados sensíveis fora do código público.
 - Realizar alterações somente dentro da pasta do projeto MotorDeck.
 
-## Planejamento
+## Stage e produção
 
-As etapas, entregas e critérios de conclusão estão em [PLANEJAMENTO.md](./PLANEJAMENTO.md).
+Use a mesma imagem Docker em duas aplicações e crie **dois projetos PostgreSQL no Supabase**, um para cada ambiente. Cada aplicação recebe somente a URL e os segredos do próprio projeto.
+
+| Ambiente | Configuração | Acesso |
+| --- | --- | --- |
+| Stage | [stage.env.example](deploy/stage.env.example) | Credenciais de stage em todo o site. A rota de saúde é pública. |
+| Produção | [production.env.example](deploy/production.env.example) | Catálogo público. Painel e API de administração protegidos. |
+
+1. Em cada projeto Supabase, habilite a Data API e execute a [migração de veículos](supabase/migrations/20261124000100_vehicles.sql) no SQL Editor. Use a URL do projeto e uma chave secreta `sb_secret_…` desse mesmo projeto. A chave é exclusiva do servidor. [Data API do Supabase](https://supabase.com/docs/guides/api/creating-routes)
+2. Configure uma aplicação a partir do [Dockerfile](Dockerfile) em cada ambiente. Cadastre as variáveis do arquivo de exemplo correspondente no gerenciador de segredos da hospedagem. Use senhas administrativas diferentes, com 24 ou mais caracteres aleatórios. Configure HTTPS e informe em `APP_ORIGIN` a origem final do ambiente, sem barra no fim. Encaminhe as requisições para a porta 3000, preservando os cabeçalhos `Authorization` e `Origin`. Permita corpos de requisição de pelo menos 7 MiB para o upload de fotos.
+3. Configure a verificação de prontidão HTTP em `/api/health`. Espere HTTP 200 nos dois ambientes antes de enviar tráfego. HTTP 503 indica que o esquema ou a conexão com o banco ainda precisa ser configurado.
+4. No stage, abra `/admin`, salve um rascunho com foto e confirme que a URL do anúncio retorna 404. Publique, confira o anúncio e a foto no catálogo, marque como vendido e confirme que saíram do catálogo. Confira que esse veículo nunca apareceu em produção.
+5. Promova a mesma imagem validada para produção, com as variáveis de produção. Teste o catálogo em uma janela anônima e confira que `/admin` e `/api/admin/vehicles` solicitam credenciais. Em produção, cadastre apenas anúncios reais. A indexação já está desativada no projeto.
+
+### Teste local
+
+```sh
+docker build -t motordeck .
+docker run --rm --env-file deploy/stage.env -p 3000:3000 motordeck
+```
+
+Para o container, use a origem HTTPS de um proxy local ou da hospedagem. Com `npm run dev`, use uma cópia de [.env.example](.env.example) em `.env.local` e configure `APP_ORIGIN` com o endereço exato aberto no navegador. Configure o Supabase também no ambiente local. O catálogo e o painel usam o banco em todos os ambientes.
+
+### Cadastros e fotos
+
+Para ativar **Consultar placa** no painel, gere uma [chave de API no Placa & FIPE](https://placaefipe.com.br/docs/autenticacao) e cadastre `PLACAEFIPE_API_KEY` no gerenciador de segredos do ambiente. Use uma chave `pf_live_` para consultar dados reais. Para teste local, use `.env.local`. O botão faz uma consulta básica quando clicado. Confira os dados, escolha a versão FIPE se houver opções e informe o preço de anúncio antes de salvar.
+
+O painel grava cada veículo com até 12 fotos JPEG comprimidas em uma única operação no PostgreSQL. O catálogo só retorna anúncios publicados e disponíveis ou reservados. Placa, dados da FIPE e rascunhos ficam restritos ao painel.
+
+### API de veículos
+
+- `GET /api/vehicles` lista os anúncios publicados.
+- `GET /api/vehicles/:slug` consulta um anúncio publicado pelo identificador.
+- `GET /api/vehicle-photos/:slug/:position` recupera a foto do anúncio.
+- `/api/admin/vehicles` fornece o cadastro, a consulta e a exclusão com autenticação.
+
+As rotas e as páginas públicas acessam o Supabase pelo servidor. O ambiente de stage exige autenticação para consultar o catálogo e a API.
