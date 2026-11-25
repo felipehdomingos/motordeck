@@ -111,8 +111,25 @@ jobs:
           PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
           SERVICE_ARN="$(aws ecs list-services --cluster "$CLUSTER_NAME" --query "serviceArns[?ends_with(@, '/$SERVICE_NAME')]" --output text || true)"
           if [ -n "$SERVICE_ARN" ] && [ "$SERVICE_ARN" != "None" ]; then
-            aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY" --monitor-resources DEPLOYMENT --monitor-mode TEXT-ONLY
+            aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY"
           else
             REQUEST="$(jq -cn --arg name "$SERVICE_NAME" --arg cluster "$CLUSTER_ARN" --arg exec "$EXEC_ROLE" --arg infra "$INFRA_ROLE" --argjson primary "$PRIMARY" --arg sg "$SERVICE_SG" --arg a "$SUBNET_A" --arg b "$SUBNET_B" '{serviceName:$name,cluster:$cluster,executionRoleArn:$exec,infrastructureRoleArn:$infra,healthCheckPath:"/api/health",primaryContainer:$primary,networkConfiguration:{securityGroups:[$sg],subnets:[$a,$b]},cpu:"512",memory:"1024",scalingTarget:{minTaskCount:1,maxTaskCount:2,autoScalingMetric:"AVERAGE_CPU",autoScalingTargetValue:60},tags:[{key:"Project",value:"MotorDeck"},{key:"ManagedBy",value:"GitHubActions"}]}')"
-            aws ecs create-express-gateway-service --cli-input-json "$REQUEST" --monitor-resources DEPLOYMENT --monitor-mode TEXT-ONLY
+            aws ecs create-express-gateway-service --cli-input-json "$REQUEST"
           fi
+
+      - name: Verify public health endpoint
+        run: |
+          set -euo pipefail
+          URL="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws/api/health"
+          for attempt in $(seq 1 36); do
+            STATUS="$(curl -L -sS -o /tmp/motordeck-health.json -w '%{http_code}' "$URL" || true)"
+            if [ "$STATUS" = "200" ]; then
+              cat /tmp/motordeck-health.json
+              exit 0
+            fi
+            echo "Health check $attempt/36 retornou HTTP $STATUS; aguardando..."
+            sleep 10
+          done
+          echo "Aplicação não respondeu 200 em $URL" >&2
+          cat /tmp/motordeck-health.json 2>/dev/null || true
+          exit 1
