@@ -110,24 +110,30 @@ jobs:
           INFRA_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-express-infra"
           SERVICE_ARN="$(aws ecs list-services --cluster "$CLUSTER_NAME" --query "serviceArns[?ends_with(@, '/$SERVICE_NAME')]" --output text || true)"
           if [ -n "$SERVICE_ARN" ] && [ "$SERVICE_ARN" != "None" ]; then
-            APP_ORIGIN="$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query 'service.targetConfiguration.ingressPaths[0].endpoint' --output text)"
+            APP_ORIGIN="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws"
             PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
-            aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY"
+            UPDATE_RESULT="$(aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY")"
+            ENDPOINT="$(jq -r '.service.targetConfiguration.ingressPaths[0].endpoint // empty' <<< "$UPDATE_RESULT")"
+            if [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "None" ]; then
+              PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$ENDPOINT" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
+              aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY" >/dev/null
+            fi
           else
             APP_ORIGIN="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws"
             PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
             REQUEST="$(jq -cn --arg name "$SERVICE_NAME" --arg cluster "$CLUSTER_ARN" --arg exec "$EXEC_ROLE" --arg infra "$INFRA_ROLE" --argjson primary "$PRIMARY" --arg sg "$SERVICE_SG" --arg a "$SUBNET_A" --arg b "$SUBNET_B" '{serviceName:$name,cluster:$cluster,executionRoleArn:$exec,infrastructureRoleArn:$infra,healthCheckPath:"/api/health",primaryContainer:$primary,networkConfiguration:{securityGroups:[$sg],subnets:[$a,$b]},cpu:"512",memory:"1024",scalingTarget:{minTaskCount:1,maxTaskCount:2,autoScalingMetric:"AVERAGE_CPU",autoScalingTargetValue:60},tags:[{key:"Project",value:"MotorDeck"},{key:"ManagedBy",value:"GitHubActions"}]}')"
             CREATE_RESULT="$(aws ecs create-express-gateway-service --cli-input-json "$REQUEST")"
             SERVICE_ARN="$(jq -r '.service.serviceArn' <<< "$CREATE_RESULT")"
-            ENDPOINT="$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query 'service.targetConfiguration.ingressPaths[0].endpoint' --output text)"
+            ENDPOINT="$(jq -r '.service.targetConfiguration.ingressPaths[0].endpoint // empty' <<< "$CREATE_RESULT")"
             PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$ENDPOINT" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
-            aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY"
+            if [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "None" ]; then
+              aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY" >/dev/null
+            fi
           fi
           if [ -z "$SERVICE_ARN" ] || [ "$SERVICE_ARN" = "None" ]; then
             echo "Não foi possível obter o ARN do serviço ECS Express." >&2
             exit 1
           fi
-          ENDPOINT="$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query 'service.targetConfiguration.ingressPaths[0].endpoint' --output text)"
           if [ -z "$ENDPOINT" ] || [ "$ENDPOINT" = "None" ]; then
             echo "ECS não retornou o endpoint público do serviço." >&2
             exit 1
