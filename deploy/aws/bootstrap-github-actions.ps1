@@ -132,7 +132,7 @@ $githubPolicy = @{
   Statement = @(
     @{ Effect = 'Allow'; Action = @('ecr:GetAuthorizationToken'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:BatchGetImage','ecr:CompleteLayerUpload','ecr:InitiateLayerUpload','ecr:PutImage','ecr:UploadLayerPart','ecr:DescribeRepositories'); Resource = $repoArn },
-    @{ Effect = 'Allow'; Action = @('ecs:CreateCluster','ecs:CreateExpressGatewayService','ecs:UpdateExpressGatewayService','ecs:DescribeExpressGatewayService','ecs:MonitorExpressGatewayService','ecs:ListServices','ecs:DescribeServices','ecs:DescribeClusters','ecs:TagResource'); Resource = '*' },
+    @{ Effect = 'Allow'; Action = @('ecs:CreateCluster','ecs:CreateGateway','ecs:AssociateGatewayWithCluster','ecs:RegisterTaskDefinition','ecs:CreateExpressGatewayService','ecs:UpdateExpressGatewayService','ecs:DescribeExpressGatewayService','ecs:MonitorExpressGatewayService','ecs:ListServices','ecs:DescribeServices','ecs:DescribeClusters','ecs:TagResource'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('ec2:DescribeVpcs','ec2:DescribeSubnets','ec2:DescribeSecurityGroups'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('logs:CreateLogGroup','logs:PutRetentionPolicy'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('secretsmanager:DescribeSecret','secretsmanager:GetSecretValue'); Resource = $secretArn },
