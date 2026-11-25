@@ -90,6 +90,7 @@ jobs:
           aws logs put-retention-policy --log-group-name /ecs/$SERVICE_NAME --retention-in-days 14
 
       - name: Create or update ECS Express Mode service
+        id: express
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           SECRET_ARN: ${{ steps.aws-resources.outputs.secret_arn }}
@@ -107,20 +108,38 @@ jobs:
           aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com 2>/dev/null || true
           EXEC_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-task-execution"
           INFRA_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-express-infra"
-          APP_ORIGIN="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws"
-          PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
           SERVICE_ARN="$(aws ecs list-services --cluster "$CLUSTER_NAME" --query "serviceArns[?ends_with(@, '/$SERVICE_NAME')]" --output text || true)"
           if [ -n "$SERVICE_ARN" ] && [ "$SERVICE_ARN" != "None" ]; then
+            APP_ORIGIN="$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query 'service.targetConfiguration.ingressPaths[0].endpoint' --output text)"
+            PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
             aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY"
           else
+            APP_ORIGIN="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws"
+            PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
             REQUEST="$(jq -cn --arg name "$SERVICE_NAME" --arg cluster "$CLUSTER_ARN" --arg exec "$EXEC_ROLE" --arg infra "$INFRA_ROLE" --argjson primary "$PRIMARY" --arg sg "$SERVICE_SG" --arg a "$SUBNET_A" --arg b "$SUBNET_B" '{serviceName:$name,cluster:$cluster,executionRoleArn:$exec,infrastructureRoleArn:$infra,healthCheckPath:"/api/health",primaryContainer:$primary,networkConfiguration:{securityGroups:[$sg],subnets:[$a,$b]},cpu:"512",memory:"1024",scalingTarget:{minTaskCount:1,maxTaskCount:2,autoScalingMetric:"AVERAGE_CPU",autoScalingTargetValue:60},tags:[{key:"Project",value:"MotorDeck"},{key:"ManagedBy",value:"GitHubActions"}]}')"
-            aws ecs create-express-gateway-service --cli-input-json "$REQUEST"
+            CREATE_RESULT="$(aws ecs create-express-gateway-service --cli-input-json "$REQUEST")"
+            SERVICE_ARN="$(jq -r '.service.serviceArn' <<< "$CREATE_RESULT")"
+            ENDPOINT="$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query 'service.targetConfiguration.ingressPaths[0].endpoint' --output text)"
+            PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$ENDPOINT" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
+            aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY"
           fi
+          if [ -z "$SERVICE_ARN" ] || [ "$SERVICE_ARN" = "None" ]; then
+            echo "Não foi possível obter o ARN do serviço ECS Express." >&2
+            exit 1
+          fi
+          ENDPOINT="$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query 'service.targetConfiguration.ingressPaths[0].endpoint' --output text)"
+          if [ -z "$ENDPOINT" ] || [ "$ENDPOINT" = "None" ]; then
+            echo "ECS não retornou o endpoint público do serviço." >&2
+            exit 1
+          fi
+          echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
 
       - name: Verify public health endpoint
+        env:
+          SERVICE_ENDPOINT: ${{ steps.express.outputs.endpoint }}
         run: |
           set -euo pipefail
-          URL="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws/api/health"
+          URL="$SERVICE_ENDPOINT/api/health"
           for attempt in $(seq 1 36); do
             STATUS="$(curl --connect-timeout 5 --max-time 10 -L -sS -o /tmp/motordeck-health.json -w '%{http_code}' "$URL" || true)"
             if [ "$STATUS" = "200" ]; then
