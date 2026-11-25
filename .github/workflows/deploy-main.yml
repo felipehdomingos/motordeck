@@ -167,8 +167,10 @@ jobs:
           SERVICE_ARN: ${{ steps.express.outputs.service_arn }}
         run: |
           set +e
+          echo '--- ECS deployment monitor ---'
+          timeout 90s aws ecs monitor-express-gateway-service --service-arn "$SERVICE_ARN" --monitor-resources DEPLOYMENT --monitor-mode TEXT-ONLY || true
           echo '--- ECS Express service ---'
-          aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query '{serviceArn:service.serviceArn,serviceRevisionArn:service.serviceRevisionArn,serviceStatus:service.status,createdAt:service.createdAt,updatedAt:service.updatedAt,targetConfiguration:service.targetConfiguration,networkConfiguration:service.networkConfiguration}' || true
+          aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" || true
           echo '--- CloudWatch streams ---'
           aws logs describe-log-streams --log-group-name "/ecs/$SERVICE_NAME" --order-by LastEventTime --descending --max-items 20 --query 'logStreams[*].{name:logStreamName,lastEvent:lastEventTimestamp,storedBytes:storedBytes}' || true
           echo '--- Recent application logs ---'
