@@ -138,6 +138,7 @@ jobs:
             echo "ECS não retornou o endpoint público do serviço." >&2
             exit 1
           fi
+          echo "service_arn=$SERVICE_ARN" >> "$GITHUB_OUTPUT"
           echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
 
       - name: Verify public health endpoint
@@ -158,3 +159,9 @@ jobs:
           echo "Aplicação não respondeu 200 em $URL" >&2
           cat /tmp/motordeck-health.json 2>/dev/null || true
           exit 1
+
+      - name: Show recent application logs if health check fails
+        if: failure()
+        run: |
+          START_MS="$(( ($(date +%s) - 900) * 1000 ))"
+          aws logs filter-log-events --log-group-name "/ecs/$SERVICE_NAME" --start-time "$START_MS" --query 'events[*].message' --output text || true
