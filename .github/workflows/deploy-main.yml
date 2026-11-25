@@ -46,7 +46,9 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           IMAGE="$REGISTRY/$REPOSITORY_NAME:${GITHUB_SHA}"
-          docker build --pull -t "$IMAGE" .
+          # Do not publish BuildKit provenance/SBOM attestations as a second
+          # OCI manifest; ECR push only needs the image manifest permissions.
+          docker build --pull --provenance=false --sbom=false -t "$IMAGE" .
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
