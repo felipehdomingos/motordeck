@@ -1,12 +1,15 @@
+import { getTenant } from '@/lib/tenant';
 import { findPublished } from '@/lib/vehicle-storage';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(_: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const headers = { 'Cache-Control': 'no-store' };
   try {
-    const vehicle = await findPublished(slug);
+    const tenant = await getTenant(request.headers);
+    if (!tenant) return Response.json({ message: 'Site não encontrado.' }, { headers, status: 404 });
+    const vehicle = await findPublished(tenant.id, slug);
     if (!vehicle) {
       return Response.json({ message: 'Veículo não encontrado.' }, { headers, status: 404 });
     }

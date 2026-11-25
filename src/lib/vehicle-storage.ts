@@ -7,7 +7,7 @@ type Details = Omit<LocalVehicle, 'slug' | 'images' | 'draft' | 'createdAt' | 'l
 type Row = { slug: string; details: Details; draft: boolean; images: string[]; photo_count: number; created_at: string };
 
 export const validSlug = (slug: string) => /^local-[a-z0-9-]{1,60}$/.test(slug);
-const table = 'mesquiatti_vehicles';
+const table = 'vehicles';
 const publicWhere = `draft = false AND details->>'status' <> 'Vendido'`;
 const publicColumns = 'slug, details, cardinality(images)::int AS photo_count';
 export async function checkDatabase() {
@@ -25,32 +25,32 @@ function published(row: Row): PublishedVehicle {
   };
 }
 
-export async function listPublished() {
-  const rows = await query<Row>(`SELECT ${publicColumns} FROM ${table} WHERE ${publicWhere} ORDER BY created_at DESC, slug ASC`);
+export async function listPublished(tenantId: string) {
+  const rows = await query<Row>(`SELECT ${publicColumns} FROM ${table} WHERE tenant_id = $1 AND ${publicWhere} ORDER BY created_at DESC, slug ASC`, [tenantId]);
   return rows.map(published);
 }
 
-export async function findPublished(slug: string) {
+export async function findPublished(tenantId: string, slug: string) {
   if (!validSlug(slug)) return;
-  const [row] = await query<Row>(`SELECT ${publicColumns} FROM ${table} WHERE ${publicWhere} AND slug = $1`, [slug]);
+  const [row] = await query<Row>(`SELECT ${publicColumns} FROM ${table} WHERE tenant_id = $1 AND ${publicWhere} AND slug = $2`, [tenantId, slug]);
   return row && published(row);
 }
 
-export async function findPhoto(slug: string, position: string) {
+export async function findPhoto(tenantId: string, slug: string, position: string) {
   const [row] = await query<{ image: string }>(
-    `SELECT images[$2::int] AS image FROM ${table} WHERE slug = $1 AND ${publicWhere}`,
-    [slug, Number(position)],
+    `SELECT images[$3::int] AS image FROM ${table} WHERE tenant_id = $1 AND slug = $2 AND ${publicWhere}`,
+    [tenantId, slug, Number(position)],
   );
   return row?.image;
 }
 
-export async function listAdmin() {
-  const rows = await query<Row>(`SELECT slug, details, draft, images, created_at FROM ${table} ORDER BY created_at DESC, slug ASC`);
+export async function listAdmin(tenantId: string) {
+  const rows = await query<Row>(`SELECT slug, details, draft, images, created_at FROM ${table} WHERE tenant_id = $1 ORDER BY created_at DESC, slug ASC`, [tenantId]);
   return rows.map(({ slug, details, draft, images, created_at }): LocalVehicle =>
     ({ ...details, slug, draft, images, createdAt: created_at, local: true }));
 }
 
-export async function storeVehicle(record: LocalVehicle, imported: boolean) {
+export async function storeVehicle(tenantId: string, record: LocalVehicle, imported: boolean) {
   const { slug, images, draft } = record;
   const details: Partial<LocalVehicle> = { ...record };
   delete details.slug;
@@ -61,19 +61,19 @@ export async function storeVehicle(record: LocalVehicle, imported: boolean) {
 
   if (imported) {
     await query(
-      `INSERT INTO ${table} (slug, details, draft, images, created_at) VALUES ($1, $2::jsonb, $3, $4::text[], $5) ON CONFLICT (slug) DO NOTHING`,
-      [slug, JSON.stringify(details), draft, images, record.createdAt],
+      `INSERT INTO ${table} (tenant_id, slug, details, draft, images, created_at) VALUES ($6, $1, $2::jsonb, $3, $4::text[], $5) ON CONFLICT (tenant_id, slug) DO NOTHING`,
+      [slug, JSON.stringify(details), draft, images, record.createdAt, tenantId],
     );
     return;
   }
 
   await query(
-    `INSERT INTO ${table} (slug, details, draft, images) VALUES ($1, $2::jsonb, $3, $4::text[])
-     ON CONFLICT (slug) DO UPDATE SET details = EXCLUDED.details, draft = EXCLUDED.draft, images = EXCLUDED.images`,
-    [slug, JSON.stringify(details), draft, images],
+    `INSERT INTO ${table} (tenant_id, slug, details, draft, images) VALUES ($5, $1, $2::jsonb, $3, $4::text[])
+     ON CONFLICT (tenant_id, slug) DO UPDATE SET details = EXCLUDED.details, draft = EXCLUDED.draft, images = EXCLUDED.images`,
+    [slug, JSON.stringify(details), draft, images, tenantId],
   );
 }
 
-export async function deleteVehicle(slug: string) {
-  await query(`DELETE FROM ${table} WHERE slug = $1`, [slug]);
+export async function deleteVehicle(tenantId: string, slug: string) {
+  await query(`DELETE FROM ${table} WHERE tenant_id = $1 AND slug = $2`, [tenantId, slug]);
 }

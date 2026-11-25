@@ -4,9 +4,11 @@ import { ContactButton, Placeholder, SectionHeading, VehicleCard } from '@/compo
 import VehicleRequest from '@/components/vehicle-request';
 import ClientGallery from '@/components/client-gallery';
 import { listPublished } from '@/lib/vehicle-storage';
+import { requireTenant } from '@/lib/tenant-page';
 export const dynamic = 'force-dynamic';
 export default async function Home() {
- const inventory = await listPublished();
+ const tenant = await requireTenant();
+ const inventory = await listPublished(tenant.id);
  return <>
  <section className="hero"><div className="container hero-grid"><div className="hero-copy"><span className="eyebrow light"><span className="tiny-dot"/> INTERMEDIAÇÃO E ANÚNCIOS DE VEÍCULOS · SUZANO/SP</span><h1>A melhor forma de conquistar seu <em>próximo carro.</em></h1><p>Encontre seu próximo carro ou venda o seu com acompanhamento profissional, atendimento direto e transparência.</p><div className="button-row"><Link href="/veiculos" className="button">Ver veículos <ArrowUpRight size={18}/></Link><Link href="/venda-seu-carro" className="button outline">Anunciar meu carro <ArrowRight size={17}/></Link></div><Link className="hero-consorcio" href="/consorcio">Planeje sua conquista com consórcio <ArrowRight size={15}/></Link><div className="hero-note"><ShieldCheck size={18}/><span>Atendimento pessoal. Negociação transparente.</span></div></div><div className="hero-visual"><div className="visual-top"><span>CONEXÕES QUE MOVEM</span><ArrowUpRight size={27}/></div><div className="hero-car hero-photo"><img src="/images/bruno-camaro.jpeg" alt="Bruno Mesquiatti ao lado de um Camaro amarelo" /></div><div className="visual-bottom"><span>BRUNO MESQUIATTI<br/><small>CARROS & SOLUÇÕES</small></span><span className="visual-number">01 / 03</span></div><div className="floating-label"><span className="tiny-dot"/> De Suzano para a sua próxima conquista.</div></div></div></section>
  <div className="trust-strip"><div className="container"><span><Handshake/> Intermediação com transparência</span><span><ShieldCheck/> Atenção em cada negociação</span><span><Route/> Planejamento para o próximo passo</span></div></div>

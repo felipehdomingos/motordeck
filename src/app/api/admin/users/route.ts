@@ -9,14 +9,16 @@ async function manager(request: Request) {
   const session = await getAdminSession(request.headers);
   if (!session) return { response: error('Sessão administrativa necessária.', 401) };
   if (!hasPermission(session, 'users:manage')) return { response: error('Seu usuário não pode gerenciar acessos.', 403) };
-  return { session };
+  if (!session.tenantId) return { response: error('Seu usuário não pertence a este site.', 403) };
+  return { session, tenantId: session.tenantId };
 }
 
 export async function GET(request: Request) {
   const auth = await manager(request);
   if ('response' in auth) return auth.response;
   const users = await query<{ id: string; username: string; email: string; name: string; role: string; permissions: unknown; active: boolean; created_at: string }>(
-    'SELECT id, username, email, name, role, permissions, active, created_at FROM admin_users ORDER BY created_at ASC',
+    'SELECT id, username, email, name, role, permissions, active, created_at FROM admin_users WHERE tenant_id = $1 ORDER BY created_at ASC',
+    [auth.tenantId],
   );
   return Response.json(users, { headers: { 'Cache-Control': 'private, no-store' } });
 }
@@ -35,7 +37,7 @@ export async function POST(request: Request) {
     return error('Confira nome, e-mail, usuário, perfil e uma senha com pelo menos 12 caracteres.');
   }
   try {
-    const user = await createAdminUser({ username, email, name, password, role, permissions });
+    const user = await createAdminUser({ tenantId: auth.tenantId, username, email, name, password, role, permissions });
     return Response.json({ id: user.id, username: user.username, email: user.email, name: user.name, role: user.role, permissions: user.permissions }, { status: 201 });
   } catch {
     return error('Não foi possível criar este acesso. Usuário ou e-mail pode já existir.', 409);
@@ -47,7 +49,8 @@ export async function DELETE(request: Request) {
   if ('response' in auth) return auth.response;
   const id = new URL(request.url).searchParams.get('id');
   if (!id || id === auth.session?.id) return error('Não é possível desativar este usuário.', 400);
-  await query('UPDATE admin_users SET active = false WHERE id = $1', [id]);
+  const changed = await query<{ id: string }>('UPDATE admin_users SET active = false WHERE id = $1 AND tenant_id = $2 RETURNING id', [id, auth.tenantId]);
+  if (!changed.length) return error('Usuário não encontrado.', 404);
   await query('DELETE FROM admin_sessions WHERE user_id = $1', [id]);
   return new Response(null, { status: 204 });
 }

@@ -33,7 +33,16 @@ export const pool = databaseUrl ? new Pool({
   idleTimeoutMillis: 30_000,
 }) : undefined;
 
+type Runner = (sql: string, values: unknown[]) => Promise<unknown[]>;
+let runner: Runner | undefined;
+
+// Ponto de injeção para os testes (PGlite). Em produção sempre usa o pool.
+export function useQueryRunner(next: Runner | undefined) {
+  runner = next;
+}
+
 export async function query<T>(sql: string, values: unknown[] = []): Promise<T[]> {
+  if (runner) return await runner(sql, values) as T[];
   if (!pool) throw new Error('PostgreSQL não configurado');
   const result = await pool.query<T>(sql, values);
   return result.rows;

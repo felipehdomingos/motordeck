@@ -45,7 +45,8 @@ export async function GET(request: Request) {
   if (!session) return unauthorized();
   if (!hasPermission(session, 'vehicles:read')) return forbidden();
   try {
-    return Response.json(await listAdmin(), { headers: { 'Cache-Control': 'private, no-store' } });
+    if (!session.tenantId) return forbidden();
+    return Response.json(await listAdmin(session.tenantId), { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {
     return bad('Não foi possível carregar os veículos do banco.', 503);
   }
@@ -69,7 +70,8 @@ export async function POST(request: Request) {
     return bad('Data de cadastro inválida.');
   }
   try {
-    await storeVehicle(record, imported === true);
+    if (!session.tenantId) return forbidden();
+    await storeVehicle(session.tenantId, record, imported === true);
     return new Response(null, { status: 204 });
   } catch {
     return bad('Não foi possível salvar o veículo no banco.', 503);
@@ -84,7 +86,8 @@ export async function DELETE(request: Request) {
   const slug = new URL(request.url).searchParams.get('slug');
   if (!slug || !validSlug(slug)) return bad('Veículo inválido.');
   try {
-    await deleteVehicle(slug);
+    if (!session.tenantId) return forbidden();
+    await deleteVehicle(session.tenantId, slug);
     return new Response(null, { status: 204 });
   } catch {
     return bad('Não foi possível excluir o veículo do banco.', 503);

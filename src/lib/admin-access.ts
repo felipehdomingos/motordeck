@@ -1,13 +1,14 @@
 import { createHash, randomBytes, scrypt as nodeScrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { query } from './postgres';
+import { getTenant } from './tenant';
 
 export const adminSessionCookie = 'motordeck_admin_session';
 export const adminSessionMaxAge = 8 * 60 * 60;
 export const adminPermissions = ['vehicles:read', 'vehicles:write', 'vehicles:delete', 'plate:lookup', 'users:manage'] as const;
 export type AdminPermission = typeof adminPermissions[number];
-export type AdminSession = { id: string; username: string; email: string; name: string; role: string; permissions: AdminPermission[] };
-type AdminRow = { id: string; username: string; email: string; name: string; role: string; permissions: unknown; password_hash: string };
+export type AdminSession = { id: string; tenantId: string | null; username: string; email: string; name: string; role: string; permissions: AdminPermission[] };
+type AdminRow = { id: string; tenant_id: string | null; username: string; email: string; name: string; role: string; permissions: unknown; password_hash: string };
 const scrypt = promisify(nodeScrypt) as unknown as (
   password: string | Buffer,
   salt: string | Buffer,
@@ -34,8 +35,8 @@ function normalizePermissions(value: unknown): AdminPermission[] {
   return value.filter((item): item is AdminPermission => typeof item === 'string' && adminPermissions.includes(item as AdminPermission));
 }
 
-function publicUser(row: Pick<AdminRow, 'id' | 'username' | 'email' | 'name' | 'role' | 'permissions'>): AdminSession {
-  return { id: row.id, username: row.username, email: row.email, name: row.name, role: row.role, permissions: normalizePermissions(row.permissions) };
+function publicUser(row: Pick<AdminRow, 'id' | 'tenant_id' | 'username' | 'email' | 'name' | 'role' | 'permissions'>): AdminSession {
+  return { id: row.id, tenantId: row.tenant_id, username: row.username, email: row.email, name: row.name, role: row.role, permissions: normalizePermissions(row.permissions) };
 }
 
 export async function hashPassword(password: string) {
@@ -53,31 +54,31 @@ export async function verifyPassword(password: string, stored: string) {
   return equalBytes(actual, expected);
 }
 
-export async function hasAdminUsers() {
-  const [row] = await query<{ count: number }>('SELECT count(*)::int AS count FROM admin_users');
+export async function hasAdminUsers(tenantId: string) {
+  const [row] = await query<{ count: number }>('SELECT count(*)::int AS count FROM admin_users WHERE tenant_id = $1', [tenantId]);
   return Number(row?.count || 0) > 0;
 }
 
-export async function findAdminByUsername(username: string) {
+export async function findAdminByUsername(tenantId: string, username: string) {
   const identity = username.toLowerCase();
-  const [row] = await query<AdminRow>('SELECT id, username, email, name, role, permissions, password_hash FROM admin_users WHERE (username = $1 OR email = $1) AND active = true', [identity]);
+  const [row] = await query<AdminRow>('SELECT id, tenant_id, username, email, name, role, permissions, password_hash FROM admin_users WHERE tenant_id = $2 AND (username = $1 OR email = $1) AND active = true', [identity, tenantId]);
   return row;
 }
 
-export async function authenticateAdmin(username: string, password: string) {
-  const row = await findAdminByUsername(username);
+export async function authenticateAdmin(tenantId: string, username: string, password: string) {
+  const row = await findAdminByUsername(tenantId, username);
   if (!row || !(await verifyPassword(password, row.password_hash))) return;
   return publicUser(row);
 }
 
-export async function createAdminUser(input: { username: string; email: string; name: string; password: string; role: string; permissions: AdminPermission[] }) {
+export async function createAdminUser(input: { tenantId: string | null; username: string; email: string; name: string; password: string; role: string; permissions: AdminPermission[] }) {
   const id = randomBytes(16).toString('hex');
   const passwordHash = await hashPassword(input.password);
   const [row] = await query<AdminRow>(
-    `INSERT INTO admin_users (id, username, email, name, password_hash, role, permissions)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-     RETURNING id, username, email, name, role, permissions, password_hash`,
-    [id, input.username.toLowerCase(), input.email.toLowerCase(), input.name.trim(), passwordHash, input.role, JSON.stringify(input.permissions)],
+    `INSERT INTO admin_users (id, tenant_id, username, email, name, password_hash, role, permissions)
+     VALUES ($1, $8, $2, $3, $4, $5, $6, $7::jsonb)
+     RETURNING id, tenant_id, username, email, name, role, permissions, password_hash`,
+    [id, input.username.toLowerCase(), input.email.toLowerCase(), input.name.trim(), passwordHash, input.role, JSON.stringify(input.permissions), input.tenantId],
   );
   return publicUser(row);
 }
@@ -96,8 +97,8 @@ export async function revokeAdminSession(headers: Headers) {
   if (token) await query('DELETE FROM admin_sessions WHERE token_hash = $1', [tokenHash(token)]);
 }
 
-export async function createPasswordReset(email: string) {
-  const [user] = await query<{ id: string; email: string; name: string }>('SELECT id, email, name FROM admin_users WHERE email = $1 AND active = true', [email.toLowerCase()]);
+export async function createPasswordReset(tenantId: string, email: string) {
+  const [user] = await query<{ id: string; email: string; name: string }>('SELECT id, email, name FROM admin_users WHERE tenant_id = $2 AND email = $1 AND active = true', [email.toLowerCase(), tenantId]);
   if (!user) return;
   const token = randomBytes(32).toString('base64url');
   await query('DELETE FROM admin_password_resets WHERE user_id = $1 OR expires_at <= now()', [user.id]);
@@ -108,10 +109,11 @@ export async function createPasswordReset(email: string) {
   return { token, user };
 }
 
-export async function resetAdminPassword(token: string, password: string) {
+export async function resetAdminPassword(tenantId: string, token: string, password: string) {
   const [reset] = await query<{ user_id: string }>(
-    `SELECT user_id FROM admin_password_resets WHERE token_hash = $1 AND expires_at > now() AND used_at IS NULL`,
-    [tokenHash(token)],
+    `SELECT r.user_id FROM admin_password_resets r JOIN admin_users u ON u.id = r.user_id
+     WHERE r.token_hash = $1 AND r.expires_at > now() AND r.used_at IS NULL AND u.tenant_id = $2`,
+    [tokenHash(token), tenantId],
   );
   if (!reset) return false;
   const passwordHash = await hashPassword(password);
@@ -124,11 +126,14 @@ export async function resetAdminPassword(token: string, password: string) {
 export async function getAdminSession(headers: Headers): Promise<AdminSession | undefined> {
   const token = cookieValue(headers);
   if (!token) return;
+  // A sessão só vale no domínio do cliente a que o usuário pertence.
+  const tenant = await getTenant(headers);
+  if (!tenant) return;
   const [row] = await query<AdminRow>(
-    `SELECT u.id, u.username, u.email, u.name, u.role, u.permissions, u.password_hash
+    `SELECT u.id, u.tenant_id, u.username, u.email, u.name, u.role, u.permissions, u.password_hash
      FROM admin_sessions s JOIN admin_users u ON u.id = s.user_id
-     WHERE s.token_hash = $1 AND s.expires_at > now() AND u.active = true`,
-    [tokenHash(token)],
+     WHERE s.token_hash = $1 AND s.expires_at > now() AND u.active = true AND u.tenant_id = $2`,
+    [tokenHash(token), tenant.id],
   );
   return row && publicUser(row);
 }

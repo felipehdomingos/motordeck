@@ -9,5 +9,8 @@
 !public/**
 !deploy/
 !deploy/start.mjs
+!deploy/migrate-lib.mjs
+!deploy/migrations/
+!deploy/migrations/*.sql
 !deploy/certs/
 !deploy/certs/rds-global-bundle.pem

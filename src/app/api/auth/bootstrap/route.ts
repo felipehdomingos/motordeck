@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createAdminUser, hasAdminUsers, setupTokenIsValid } from '@/lib/admin-access';
+import { getTenant } from '@/lib/tenant';
 
 export async function POST(request: Request) {
-  if (await hasAdminUsers()) return NextResponse.json({ message: 'O administrador inicial já foi criado.' }, { status: 409 });
+  const tenant = await getTenant(request.headers);
+  if (!tenant) return NextResponse.json({ message: 'Site não encontrado.' }, { status: 404 });
+  if (await hasAdminUsers(tenant.id)) return NextResponse.json({ message: 'O administrador inicial já foi criado.' }, { status: 409 });
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ message: 'Dados inválidos.' }, { status: 400 }); }
   const data = body as { setupToken?: unknown; username?: unknown; email?: unknown; name?: unknown; password?: unknown };
@@ -16,7 +19,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Informe nome, e-mail, usuário válido e senha com pelo menos 12 caracteres.' }, { status: 400 });
   }
   try {
-    const user = await createAdminUser({ username, email, name, password, role: 'owner', permissions: ['vehicles:read', 'vehicles:write', 'vehicles:delete', 'plate:lookup', 'users:manage'] });
+    const user = await createAdminUser({ tenantId: tenant.id, username, email, name, password, role: 'owner', permissions: ['vehicles:read', 'vehicles:write', 'vehicles:delete', 'plate:lookup', 'users:manage'] });
     return NextResponse.json({ ok: true, user: { id: user.id, username: user.username, email: user.email, name: user.name } }, { status: 201 });
   } catch {
     return NextResponse.json({ message: 'Não foi possível criar o administrador.' }, { status: 409 });
