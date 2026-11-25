@@ -17,6 +17,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -147,16 +148,16 @@ jobs:
         run: |
           set -euo pipefail
           URL="$SERVICE_ENDPOINT/api/health"
-          for attempt in $(seq 1 36); do
+          for attempt in $(seq 1 5); do
             STATUS="$(curl --connect-timeout 5 --max-time 10 -L -sS -o /tmp/motordeck-health.json -w '%{http_code}' "$URL" || true)"
             if [ "$STATUS" = "200" ]; then
               cat /tmp/motordeck-health.json
               exit 0
             fi
-            echo "Health check $attempt/36 retornou HTTP $STATUS; aguardando..."
+            echo "Health check $attempt/5 retornou HTTP $STATUS; aguardando..."
             sleep 10
           done
-          echo "Aplicação não respondeu 200 em $URL" >&2
+          echo "Aplicação não respondeu 200 após 5 tentativas em $URL" >&2
           cat /tmp/motordeck-health.json 2>/dev/null || true
           exit 1
 
