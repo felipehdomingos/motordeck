@@ -7,7 +7,9 @@ export async function GET() {
   try {
     await checkDatabase();
     return Response.json({ status: 'ok' }, { headers });
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[health] database check failed: ${message}`);
     return Response.json({ status: 'unavailable' }, { headers, status: 503 });
   }
 }
