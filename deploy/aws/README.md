@@ -31,6 +31,8 @@ Para não depender do Docker Desktop local, execute uma única vez no PowerShell
 
 Depois faça commit e push da pasta `.github/workflows` na branch `main`. Cada push na `main` executará o workflow `Deploy MotorDeck`, construirá a imagem no runner do GitHub, publicará no ECR e criará ou atualizará o serviço ECS Express Mode.
 
+Se o push da imagem falhar com `403 Forbidden` ao consultar um manifesto no ECR, após integrar a correção à `main`, execute novamente o bootstrap atualizado da `main` para aplicar a permissão `ecr:BatchGetImage` ao role de deploy. Use o mesmo token inicial do administrador e a mesma senha do PostgreSQL, pois o bootstrap atualiza o secret de produção. Depois execute o workflow novamente.
+
 O workflow usa GitHub OIDC com credenciais AWS temporárias; nenhuma access key permanente fica no GitHub.
 
 ## Variáveis do serviço
