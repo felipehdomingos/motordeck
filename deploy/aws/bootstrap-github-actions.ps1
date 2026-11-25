@@ -107,7 +107,14 @@ $githubTrust = @{
     Effect = 'Allow'
     Principal = @{ Federated = $providerArn }
     Action = 'sts:AssumeRoleWithWebIdentity'
-    Condition = @{ StringEquals = @{ 'token.actions.githubusercontent.com:aud' = 'sts.amazonaws.com'; 'token.actions.githubusercontent.com:sub' = "repo:$GitHubRepository`:ref:refs/heads/$GitHubBranch" } }
+    # GitHub uses immutable subject claims for this repository. The numeric
+    # owner/repository IDs are part of the subject and must be matched exactly.
+    Condition = @{
+      StringEquals = @{
+        'token.actions.githubusercontent.com:aud' = 'sts.amazonaws.com'
+        'token.actions.githubusercontent.com:sub' = 'repo:felipehdomingos@99370203/motordeck@1470286306:ref:refs/heads/main'
+      }
+    }
   })
 } | ConvertTo-Json -Depth 8
 $githubTrust | Set-Content -LiteralPath $githubTrustPath -Encoding ascii
