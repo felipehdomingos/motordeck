@@ -75,11 +75,16 @@ $infraRoleArn = Ensure-Role $infraRoleName $infraTrust 'arn:aws:iam::aws:policy/
 
 $secretName = "motordeck/$ServiceName/production"
 $secretJson = @{ DATABASE_URL = $databaseUrl; ADMIN_SETUP_TOKEN = $AdminSetupToken } | ConvertTo-Json -Compress
+# Windows PowerShell 5.1 drops the inner double quotes of an inline argument to a native exe; pass the JSON by file.
+$secretFile = Join-Path $env:TEMP "motordeck-secret-$([Guid]::NewGuid()).json"
+[IO.File]::WriteAllText($secretFile, $secretJson, (New-Object Text.UTF8Encoding $false))
 try {
   $secretArn = (Invoke-AwsJson @('secretsmanager', 'describe-secret', '--secret-id', $secretName, '--region', $Region)).ARN
-  Invoke-AwsJson @('secretsmanager', 'put-secret-value', '--secret-id', $secretName, '--secret-string', $secretJson, '--region', $Region) | Out-Null
+  Invoke-AwsJson @('secretsmanager', 'put-secret-value', '--secret-id', $secretName, '--secret-string', "file://$secretFile", '--region', $Region) | Out-Null
 } catch {
-  $secretArn = (Invoke-AwsJson @('secretsmanager', 'create-secret', '--name', $secretName, '--secret-string', $secretJson, '--region', $Region)).ARN
+  $secretArn = (Invoke-AwsJson @('secretsmanager', 'create-secret', '--name', $secretName, '--secret-string', "file://$secretFile", '--region', $Region)).ARN
+} finally {
+  Remove-Item -LiteralPath $secretFile -Force -ErrorAction SilentlyContinue
 }
 $secretPolicyPath = Join-Path $env:TEMP "motordeck-secret-policy-$([Guid]::NewGuid()).json"
 @{ Version = '2012-10-17'; Statement = @(@{ Effect = 'Allow'; Action = @('secretsmanager:GetSecretValue'); Resource = $secretArn }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $secretPolicyPath -Encoding ascii
@@ -131,7 +136,7 @@ $githubPolicy = @{
   Version = '2012-10-17'
   Statement = @(
     @{ Effect = 'Allow'; Action = @('ecr:GetAuthorizationToken'); Resource = '*' },
-    @{ Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:BatchGetImage','ecr:CompleteLayerUpload','ecr:InitiateLayerUpload','ecr:PutImage','ecr:UploadLayerPart','ecr:DescribeRepositories'); Resource = $repoArn },
+    @{ Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:BatchGetImage','ecr:CompleteLayerUpload','ecr:InitiateLayerUpload','ecr:PutImage','ecr:UploadLayerPart','ecr:DescribeRepositories','ecr:DescribeImages'); Resource = $repoArn },
     @{ Effect = 'Allow'; Action = @('ecs:CreateCluster','ecs:CreateGateway','ecs:AssociateGatewayWithCluster','ecs:RegisterTaskDefinition','ecs:CreateExpressGatewayService','ecs:UpdateExpressGatewayService','ecs:DescribeExpressGatewayService','ecs:MonitorExpressGatewayService','ecs:ListServices','ecs:DescribeServices','ecs:DescribeClusters','ecs:TagResource'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('ec2:DescribeVpcs','ec2:DescribeSubnets','ec2:DescribeSecurityGroups'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('logs:CreateLogGroup','logs:PutRetentionPolicy','logs:DescribeLogStreams','logs:FilterLogEvents'); Resource = '*' },

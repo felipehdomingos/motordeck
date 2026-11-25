@@ -63,7 +63,7 @@ $policy = @{
   Version = '2012-10-17'
   Statement = @(
     @{ Effect = 'Allow'; Action = @('ecr:GetAuthorizationToken'); Resource = '*' },
-    @{ Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:BatchGetImage','ecr:CompleteLayerUpload','ecr:InitiateLayerUpload','ecr:PutImage','ecr:UploadLayerPart','ecr:DescribeRepositories'); Resource = $repoArn },
+    @{ Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:BatchGetImage','ecr:CompleteLayerUpload','ecr:InitiateLayerUpload','ecr:PutImage','ecr:UploadLayerPart','ecr:DescribeRepositories','ecr:DescribeImages'); Resource = $repoArn },
     @{ Effect = 'Allow'; Action = @('ecs:CreateCluster','ecs:CreateGateway','ecs:AssociateGatewayWithCluster','ecs:RegisterTaskDefinition','ecs:CreateExpressGatewayService','ecs:UpdateExpressGatewayService','ecs:DescribeExpressGatewayService','ecs:MonitorExpressGatewayService','ecs:ListServices','ecs:DescribeServices','ecs:DescribeClusters','ecs:TagResource'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('ec2:DescribeVpcs','ec2:DescribeSubnets','ec2:DescribeSecurityGroups'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('logs:CreateLogGroup','logs:PutRetentionPolicy','logs:DescribeLogStreams','logs:FilterLogEvents'); Resource = '*' },
