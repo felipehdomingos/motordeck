@@ -1,5 +1,6 @@
 import { getAdminSession, hasPermission } from '@/lib/admin-access';
 import type { LocalVehicle } from '@/lib/local-vehicles';
+import { isSameOrigin } from '@/lib/origin';
 import { deleteVehicle, listAdmin, storeVehicle, validSlug } from '@/lib/vehicle-storage';
 
 const maxBody = 7 * 1024 * 1024;
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
   const session = await getAdminSession(request.headers);
   if (!session) return unauthorized();
   if (!hasPermission(session, 'vehicles:write')) return forbidden();
-  if (request.headers.get('origin') !== process.env.APP_ORIGIN) return bad('Origem inválida.', 403);
+  if (!isSameOrigin(request)) return bad('Origem inválida.', 403);
   if (request.headers.get('content-type') !== 'application/json') return bad('Formato inválido.', 415);
   let body;
   try {
@@ -82,7 +83,7 @@ export async function DELETE(request: Request) {
   const session = await getAdminSession(request.headers);
   if (!session) return unauthorized();
   if (!hasPermission(session, 'vehicles:delete')) return forbidden();
-  if (request.headers.get('origin') !== process.env.APP_ORIGIN) return bad('Origem inválida.', 403);
+  if (!isSameOrigin(request)) return bad('Origem inválida.', 403);
   const slug = new URL(request.url).searchParams.get('slug');
   if (!slug || !validSlug(slug)) return bad('Veículo inválido.');
   try {

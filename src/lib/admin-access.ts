@@ -4,7 +4,11 @@ import { query } from './postgres';
 import { getTenant } from './tenant';
 
 export const adminSessionCookie = 'motordeck_admin_session';
+export const platformSessionCookie = 'motordeck_platform_session';
 export const adminSessionMaxAge = 8 * 60 * 60;
+export const inviteTtlHours = 72;
+// Hash que nunca confere com senha alguma: o usuário convidado só entra depois de definir a senha.
+export const pendingPasswordHash = '!';
 export const adminPermissions = ['vehicles:read', 'vehicles:write', 'vehicles:delete', 'plate:lookup', 'users:manage'] as const;
 export type AdminPermission = typeof adminPermissions[number];
 export type AdminSession = { id: string; tenantId: string | null; username: string; email: string; name: string; role: string; permissions: AdminPermission[] };
@@ -24,10 +28,10 @@ function tokenHash(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function cookieValue(headers: Headers) {
+function cookieValue(headers: Headers, name = adminSessionCookie) {
   const cookie = headers.get('cookie') || '';
-  const entry = cookie.split(';').map(item => item.trim()).find(item => item.startsWith(`${adminSessionCookie}=`));
-  return entry?.slice(adminSessionCookie.length + 1) || '';
+  const entry = cookie.split(';').map(item => item.trim()).find(item => item.startsWith(`${name}=`));
+  return entry?.slice(name.length + 1) || '';
 }
 
 function normalizePermissions(value: unknown): AdminPermission[] {
@@ -71,9 +75,10 @@ export async function authenticateAdmin(tenantId: string, username: string, pass
   return publicUser(row);
 }
 
-export async function createAdminUser(input: { tenantId: string | null; username: string; email: string; name: string; password: string; role: string; permissions: AdminPermission[] }) {
+// password null = convite: a conta nasce sem senha e a pessoa define a sua pelo link recebido.
+export async function createAdminUser(input: { tenantId: string | null; username: string; email: string; name: string; password: string | null; role: string; permissions: AdminPermission[] }) {
   const id = randomBytes(16).toString('hex');
-  const passwordHash = await hashPassword(input.password);
+  const passwordHash = input.password === null ? pendingPasswordHash : await hashPassword(input.password);
   const [row] = await query<AdminRow>(
     `INSERT INTO admin_users (id, tenant_id, username, email, name, password_hash, role, permissions)
      VALUES ($1, $8, $2, $3, $4, $5, $6, $7::jsonb)
@@ -92,8 +97,8 @@ export async function createAdminSession(userId: string) {
   return token;
 }
 
-export async function revokeAdminSession(headers: Headers) {
-  const token = cookieValue(headers);
+export async function revokeAdminSession(headers: Headers, cookieName = adminSessionCookie) {
+  const token = cookieValue(headers, cookieName);
   if (token) await query('DELETE FROM admin_sessions WHERE token_hash = $1', [tokenHash(token)]);
 }
 
@@ -107,6 +112,17 @@ export async function createPasswordReset(tenantId: string, email: string) {
     [tokenHash(token), user.id],
   );
   return { token, user };
+}
+
+// Convite e redefinição usam o mesmo mecanismo: link de uso único que define a senha.
+export async function createInvite(userId: string, hours = inviteTtlHours) {
+  const token = randomBytes(32).toString('base64url');
+  await query('DELETE FROM admin_password_resets WHERE user_id = $1 OR expires_at <= now()', [userId]);
+  await query(
+    `INSERT INTO admin_password_resets (token_hash, user_id, expires_at) VALUES ($1, $2, now() + ($3 * interval '1 hour'))`,
+    [tokenHash(token), userId, hours],
+  );
+  return token;
 }
 
 export async function resetAdminPassword(tenantId: string, token: string, password: string) {
@@ -138,6 +154,45 @@ export async function getAdminSession(headers: Headers): Promise<AdminSession | 
   return row && publicUser(row);
 }
 
+// Administrador da plataforma (você): sem cliente, sessão em cookie próprio e só nos domínios da plataforma.
+export function platformHosts() {
+  const configured = (process.env.PLATFORM_HOSTS || '').split(',').map(host => host.trim().toLowerCase()).filter(Boolean);
+  if (configured.length) return configured;
+  try { return process.env.APP_ORIGIN ? [new URL(process.env.APP_ORIGIN).host.toLowerCase()] : []; } catch { return []; }
+}
+
+export function isPlatformHost(headers: Headers) {
+  return platformHosts().includes((headers.get('host') || '').trim().toLowerCase());
+}
+
+export async function hasPlatformAdmin() {
+  const [row] = await query<{ count: number }>(`SELECT count(*)::int AS count FROM admin_users WHERE role = 'superadmin'`);
+  return Number(row?.count || 0) > 0;
+}
+
+export async function authenticatePlatform(identity: string, password: string) {
+  const login = identity.toLowerCase();
+  const [row] = await query<AdminRow>(
+    `SELECT id, tenant_id, username, email, name, role, permissions, password_hash FROM admin_users
+     WHERE role = 'superadmin' AND tenant_id IS NULL AND (username = $1 OR email = $1) AND active = true`,
+    [login],
+  );
+  if (!row || !(await verifyPassword(password, row.password_hash))) return;
+  return publicUser(row);
+}
+
+export async function getPlatformSession(headers: Headers): Promise<AdminSession | undefined> {
+  const token = cookieValue(headers, platformSessionCookie);
+  if (!token || !isPlatformHost(headers)) return;
+  const [row] = await query<AdminRow>(
+    `SELECT u.id, u.tenant_id, u.username, u.email, u.name, u.role, u.permissions, u.password_hash
+     FROM admin_sessions s JOIN admin_users u ON u.id = s.user_id
+     WHERE s.token_hash = $1 AND s.expires_at > now() AND u.active = true AND u.role = 'superadmin' AND u.tenant_id IS NULL`,
+    [tokenHash(token)],
+  );
+  return row && publicUser(row);
+}
+
 export async function hasAdminAccess(headers: Headers) {
   return Boolean(await getAdminSession(headers));
 }
@@ -146,9 +201,9 @@ export function hasPermission(session: AdminSession | undefined, permission: Adm
   return Boolean(session && (session.role === 'owner' || session.permissions.includes(permission)));
 }
 
-export function sessionCookieOptions(value: string, maxAge = adminSessionMaxAge) {
+export function sessionCookieOptions(value: string, maxAge = adminSessionMaxAge, name = adminSessionCookie) {
   return {
-    name: adminSessionCookie,
+    name,
     value,
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
