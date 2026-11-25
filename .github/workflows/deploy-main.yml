@@ -162,6 +162,13 @@ jobs:
 
       - name: Show recent application logs if health check fails
         if: failure()
+        env:
+          SERVICE_ARN: ${{ steps.express.outputs.service_arn }}
         run: |
+          echo '--- ECS Express service ---'
+          aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" || true
+          echo '--- CloudWatch streams ---'
+          aws logs describe-log-streams --log-group-name "/ecs/$SERVICE_NAME" --order-by LastEventTime --descending --max-items 20 || true
+          echo '--- Recent application logs ---'
           START_MS="$(( ($(date +%s) - 900) * 1000 ))"
           aws logs filter-log-events --log-group-name "/ecs/$SERVICE_NAME" --start-time "$START_MS" --query 'events[*].message' --output text || true
