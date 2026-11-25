@@ -104,6 +104,7 @@ jobs:
           if [ -z "$CLUSTER_ARN" ] || [ "$CLUSTER_ARN" = "None" ]; then
             CLUSTER_ARN="$(aws ecs create-cluster --cluster-name "$CLUSTER_NAME" --query 'cluster.clusterArn' --output text)"
           fi
+          aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com 2>/dev/null || true
           EXEC_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-task-execution"
           INFRA_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-express-infra"
           APP_ORIGIN="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws"

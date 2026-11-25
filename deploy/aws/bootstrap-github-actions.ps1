@@ -136,6 +136,7 @@ $githubPolicy = @{
     @{ Effect = 'Allow'; Action = @('ec2:DescribeVpcs','ec2:DescribeSubnets','ec2:DescribeSecurityGroups'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('logs:CreateLogGroup','logs:PutRetentionPolicy'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('secretsmanager:DescribeSecret','secretsmanager:GetSecretValue'); Resource = $secretArn },
+    @{ Effect = 'Allow'; Action = @('iam:CreateServiceLinkedRole'); Resource = '*'; Condition = @{ StringEquals = @{ 'iam:AWSServiceName' = 'ecs.amazonaws.com' } } },
     @{ Effect = 'Allow'; Action = @('iam:PassRole'); Resource = @($execRoleArn, $infraRoleArn); Condition = @{ StringEquals = @{ 'iam:PassedToService' = @('ecs.amazonaws.com','ecs-tasks.amazonaws.com') } } }
   )
 } | ConvertTo-Json -Depth 10
