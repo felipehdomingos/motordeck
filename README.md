@@ -52,7 +52,7 @@ npm.cmd run lint
 npm.cmd run build
 ```
 
-O primeiro `npm install` bem-sucedido deve gerar o `package-lock.json`; mantenha esse arquivo versionado e passe a usar `npm.cmd ci` nas instalações seguintes. Não existe lockfile nesta entrega porque o download foi bloqueado.
+O projeto usa o driver `pg` para o PostgreSQL do Azure. O build do container executa `npm install` para resolver as dependências no ambiente de build.
 
 ### Estrutura do código
 
@@ -65,11 +65,11 @@ O primeiro `npm install` bem-sucedido deve gerar o `package-lock.json`; mantenha
 
 - Início, catálogo, filtros por marca/preço/ano/tipo e páginas individuais.
 - Serviços de intermediação e consórcio, sobre, contato, vídeos e privacidade.
-- Estados de disponibilidade, reservado e vendido nos anúncios gravados no Supabase.
+- Estados de disponibilidade, reservado e vendido nos anúncios gravados no PostgreSQL do Azure.
 - Formulários com validação HTML e preparação de mensagem revisável no WhatsApp. Não armazenam leads nem simulam envio.
 - Layout responsivo, componentes compartilhados, navegação por teclado e fontes locais após instalação.
 - Placeholders identificados para imagens originais; nenhuma fotografia, logotipo ou avaliação inventada.
-- Painel administrativo autenticado com cadastro de veículos e fotos no Supabase.
+- Painel administrativo autenticado com cadastro de veículos e fotos no PostgreSQL do Azure.
 
 ### Pendências para uma aplicação administrável
 
@@ -83,7 +83,7 @@ O primeiro `npm install` bem-sucedido deve gerar o `package-lock.json`; mantenha
 - Criar sitemap e ativar indexação somente com conteúdo real e domínio confirmado. A prévia possui `noindex` e bloqueio em `robots.txt`.
 - Executar TypeScript, lint, build, testes de filtros, formulários, autorização, uploads e revisão em celular antes de publicar.
 
-O cadastro usa PostgreSQL no Supabase. Consulte o [guia de implantação em produção](#produção).
+O cadastro usa PostgreSQL no Azure. Consulte o [guia de implantação em produção](#produção).
 
 ## Diretrizes
 
@@ -97,14 +97,14 @@ O cadastro usa PostgreSQL no Supabase. Consulte o [guia de implantação em prod
 
 ## Produção
 
-1. No Supabase de produção, habilite a Data API e aplique a [migração de veículos](supabase/migrations/20261124000100_vehicles.sql) no SQL Editor.
-2. Configure a aplicação a partir do [Dockerfile](Dockerfile) e cadastre as variáveis de [production.env.example](deploy/production.env.example) no gerenciador de segredos da hospedagem. Use uma senha administrativa com pelo menos 24 caracteres aleatórios.
+1. No Azure Database for PostgreSQL, crie o banco `motordeck` e aplique a [migração de veículos](deploy/azure/001_motordeck.sql) com um cliente PostgreSQL.
+2. Configure a aplicação a partir do [Dockerfile](Dockerfile) e cadastre as variáveis de [production.env.example](deploy/production.env.example). O `ADMIN_SETUP_TOKEN` protege a criação do primeiro administrador; depois os acessos ficam no PostgreSQL.
 3. Configure HTTPS e informe em `APP_ORIGIN` a origem final, sem barra no fim. Encaminhe as requisições para a porta 3000, preservando os cabeçalhos `Authorization` e `Origin`. Permita corpos de requisição de pelo menos 7 MiB para o upload de fotos.
 4. Aguarde HTTP 200 em `/api/health` antes de enviar tráfego. Confira se o catálogo abre em uma janela anônima e se `/admin` e `/api/admin/vehicles` exigem credenciais. A indexação está desativada no projeto.
 
 ### Execução local
 
-Copie [.env.example](.env.example) para `.env.local` e configure as credenciais do Supabase de produção. Use a origem local em `APP_ORIGIN` e execute `npm run dev`. As alterações feitas no painel local afetam os anúncios de produção.
+Copie [.env.example](.env.example) para `.env.local` e configure `DATABASE_URL` do PostgreSQL do Azure. Use a origem local em `APP_ORIGIN` e execute `npm run dev`. As alterações feitas no painel local afetam os anúncios de produção.
 
 ### Cadastros e fotos
 
@@ -119,4 +119,12 @@ O painel grava cada veículo com até 12 fotos JPEG comprimidas em uma única op
 - `GET /api/vehicle-photos/:slug/:position` recupera a foto do anúncio.
 - `/api/admin/vehicles` fornece o cadastro, a consulta e a exclusão com autenticação.
 
-As rotas e as páginas públicas acessam o Supabase pelo servidor.
+As rotas e as páginas públicas acessam o PostgreSQL do Azure pelo servidor.
+
+### Acessos administrativos
+
+`/login` é a tela normal de entrada. Na primeira execução, use o `ADMIN_SETUP_TOKEN` para criar o proprietário. Depois, o proprietário cria outros usuários em `/admin` com permissões de leitura, edição, exclusão, consulta de placa e gerenciamento de acessos. O fluxo `/esqueci-senha` envia o link por e-mail quando `RESEND_API_KEY` e `AUTH_FROM_EMAIL` estão configurados.
+
+### Deploy no Azure
+
+Faça `az login` e execute `deploy/azure/deploy.ps1` em uma sessão PowerShell. O script cria o Resource Group, Azure Database for PostgreSQL, Container Registry e Web App, aplica `deploy/azure/001_motordeck.sql` e configura os segredos. Depois acesse `/login`, crie o primeiro administrador com o código inicial e gerencie os demais acessos pelo painel.

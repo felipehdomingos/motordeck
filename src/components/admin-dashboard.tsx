@@ -1,10 +1,11 @@
 'use client';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import Link from 'next/link';
-import { Camera, CarFront, Check, ChevronRight, ClipboardList, FileImage, Save, Trash2, WandSparkles } from 'lucide-react';
+import { Camera, CarFront, Check, ChevronRight, ClipboardList, FileImage, LogOut, Save, Trash2, WandSparkles } from 'lucide-react';
 import type { LocalVehicle } from '@/lib/local-vehicles';
 import { money } from '@/lib/data';
 import { normalizePlate, type PlateLookup } from '@/lib/plate-lookup';
+import AdminUsersPanel from './admin-users-panel';
 
 type VehicleFields = {plate:string; brand:string; model:string; version:string; manufactureYear:string; modelYear:string; transmission:string; fuel:string; fipe:string; fipeCode:string; fipeReference:string; mileage:string; price:string; color:string; type:string; notes:string; images:string[]; status:string};
 const blank:VehicleFields={plate:'',brand:'',model:'',version:'',manufactureYear:'',modelYear:'',transmission:'',fuel:'',fipe:'',fipeCode:'',fipeReference:'',mileage:'',price:'',color:'',type:'',notes:'',images:[],status:'Disponível'};
@@ -48,7 +49,8 @@ function saveRecord(record: LocalVehicle) {
    body: JSON.stringify({ record }),
  });
 }
-export default function AdminDashboard({ plateLookupEnabled }: { plateLookupEnabled: boolean }){
+export default function AdminDashboard({ plateLookupEnabled, permissions }: { plateLookupEnabled: boolean; permissions: string[] }){
+ void permissions;
  const [form,setForm]=useState<VehicleFields>(blank);const [items,setItems]=useState<LocalVehicle[]>([]);const [ocrFile,setOcrFile]=useState<File|null>(null);const [ocrPreview,setOcrPreview]=useState('');const [raw,setRaw]=useState('');const [busy,setBusy]=useState(false);const [message,setMessage]=useState('');const [editing,setEditing]=useState<string|null>(null);
  const [plateLookup,setPlateLookup]=useState<PlateLookup|null>(null);
  const [plateMessage,setPlateMessage]=useState('');
@@ -125,6 +127,7 @@ export default function AdminDashboard({ plateLookupEnabled }: { plateLookupEnab
  } finally { setBusy(false); }
  }
  function edit(v:LocalVehicle){setPlateLookup(null);setPlateMessage('');setEditing(v.slug);setForm({plate:v.plate,brand:v.brand,model:v.model,version:v.version,manufactureYear:String(v.manufactureYear||''),modelYear:String(v.year||''),transmission:v.transmission,fuel:v.fuel,fipe:String(v.fipe||''),fipeCode:v.fipeCode||'',fipeReference:v.fipeReference||'',mileage:String(v.mileage||''),price:String(v.price||''),color:v.color,type:v.type,notes:v.notes,images:v.images,status:v.status});setMessage('Editando anúncio.');}
+ async function logout(){await fetch('/api/auth/logout',{method:'POST'});window.location.assign('/login');}
  async function remove(slug:string){
    if(!confirm('Excluir este cadastro?'))return;
    setBusy(true);
@@ -137,7 +140,7 @@ export default function AdminDashboard({ plateLookupEnabled }: { plateLookupEnab
      setMessage(error instanceof Error?error.message:'Não foi possível excluir o veículo.');
    } finally { setBusy(false); }
  }
- return <section className="container section admin-motordeck"><div className="admin-head"><div><span className="eyebrow">MotorDeck / PRODUÇÃO</span><h1>Cadastro de veículos</h1><p>Consulte a placa e revise os dados antes de publicar o anúncio.</p></div><Link className="button button-outline" href="/veiculos">Ver catálogo <ChevronRight size={17}/></Link></div>
+ return <section className="container section admin-motordeck"><div className="admin-head"><div><span className="eyebrow">MotorDeck / PAINEL ADMINISTRATIVO</span><h1>Cadastro de veículos</h1><p>Consulte a placa e revise os dados antes de publicar o anúncio.</p></div><div className="admin-head-actions"><Link className="button button-outline" href="/veiculos">Ver catálogo <ChevronRight size={17}/></Link><button className="admin-secondary" type="button" onClick={logout}><LogOut size={17}/> Sair</button></div></div>
  <div className="admin-layout"><div className="admin-form-panel"><div className="admin-step"><span>01</span><div><h2>Consultar pela placa</h2></div></div>
  <label className="admin-field">Placa<input value={form.plate} maxLength={10} disabled={busy} onChange={e=>changePlate(e.target.value)}/></label>
  <div className="admin-actions"><button type="button" className="button" disabled={busy||!plateLookupEnabled||!form.plate.trim()} onClick={lookupPlate}>Consultar placa</button></div>

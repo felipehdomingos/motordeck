@@ -1,35 +1,17 @@
 import type { Vehicle } from './data';
 import type { LocalVehicle } from './local-vehicles';
+import { query } from './postgres';
 
 export type PublishedVehicle = Vehicle & { manufactureYear: number };
 type Details = Omit<LocalVehicle, 'slug' | 'images' | 'draft' | 'createdAt' | 'local'>;
 type Row = { slug: string; details: Details; draft: boolean; images: string[]; photo_count: number; created_at: string };
+
 export const validSlug = (slug: string) => /^local-[a-z0-9-]{1,60}$/.test(slug);
 const table = 'mesquiatti_vehicles';
-
-async function database<T>(resource: string, query: Record<string, string>, init?: RequestInit): Promise<T> {
-  const base = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SECRET_KEY;
-  if (!base || !key) throw new Error('PostgreSQL não configurado');
-  const url = new URL(`/rest/v1/${resource}`, base);
-  url.search = new URLSearchParams(query).toString();
-  const response = await fetch(url, {
-    ...init,
-    cache: 'no-store',
-    signal: AbortSignal.timeout(15_000),
-    headers: { apikey: key, ...(!key.startsWith('sb_secret_') && { Authorization: `Bearer ${key}` }), ...init?.headers },
-  });
-  if (!response.ok) throw new Error(`PostgreSQL retornou HTTP ${response.status}`);
-  if (init?.method === 'POST' || init?.method === 'DELETE') return undefined as T;
-  return response.json();
-}
-
-const publicFilter = { draft: 'eq.false', 'details->>status': 'neq.Vendido' };
-const publicColumns = 'slug,details,photo_count';
-
+const publicWhere = `draft = false AND details->>'status' <> 'Vendido'`;
+const publicColumns = 'slug, details, cardinality(images)::int AS photo_count';
 export async function checkDatabase() {
-  await database(table, { select: 'slug', limit: '1' });
-  await database('mesquiatti_vehicle_photos', { select: 'slug', limit: '1' });
+  await query<{ slug: string }>(`SELECT slug FROM ${table} LIMIT 1`);
 }
 
 function published(row: Row): PublishedVehicle {
@@ -44,25 +26,26 @@ function published(row: Row): PublishedVehicle {
 }
 
 export async function listPublished() {
-  const rows = await database<Row[]>(table, { ...publicFilter, select: publicColumns, order: 'created_at.desc,slug.asc' });
+  const rows = await query<Row>(`SELECT ${publicColumns} FROM ${table} WHERE ${publicWhere} ORDER BY created_at DESC, slug ASC`);
   return rows.map(published);
 }
 
 export async function findPublished(slug: string) {
   if (!validSlug(slug)) return;
-  const [row] = await database<Row[]>(table, { ...publicFilter, slug: `eq.${slug}`, select: publicColumns });
+  const [row] = await query<Row>(`SELECT ${publicColumns} FROM ${table} WHERE ${publicWhere} AND slug = $1`, [slug]);
   return row && published(row);
 }
 
 export async function findPhoto(slug: string, position: string) {
-  const [row] = await database<{ image: string }[]>('mesquiatti_vehicle_photos', {
-    slug: `eq.${slug}`, position: `eq.${position}`, select: 'image',
-  });
+  const [row] = await query<{ image: string }>(
+    `SELECT images[$2::int] AS image FROM ${table} WHERE slug = $1 AND ${publicWhere}`,
+    [slug, Number(position)],
+  );
   return row?.image;
 }
 
 export async function listAdmin() {
-  const rows = await database<Row[]>(table, { select: 'slug,details,draft,images,created_at', order: 'created_at.desc,slug.asc' });
+  const rows = await query<Row>(`SELECT slug, details, draft, images, created_at FROM ${table} ORDER BY created_at DESC, slug ASC`);
   return rows.map(({ slug, details, draft, images, created_at }): LocalVehicle =>
     ({ ...details, slug, draft, images, createdAt: created_at, local: true }));
 }
@@ -75,13 +58,22 @@ export async function storeVehicle(record: LocalVehicle, imported: boolean) {
   delete details.draft;
   delete details.local;
   delete details.createdAt;
-  await database(table, { on_conflict: 'slug' }, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Prefer: imported ? 'resolution=ignore-duplicates' : 'resolution=merge-duplicates' },
-    body: JSON.stringify({ slug, images, draft, details, ...(imported && { created_at: record.createdAt }) }),
-  });
+
+  if (imported) {
+    await query(
+      `INSERT INTO ${table} (slug, details, draft, images, created_at) VALUES ($1, $2::jsonb, $3, $4::text[], $5) ON CONFLICT (slug) DO NOTHING`,
+      [slug, JSON.stringify(details), draft, images, record.createdAt],
+    );
+    return;
+  }
+
+  await query(
+    `INSERT INTO ${table} (slug, details, draft, images) VALUES ($1, $2::jsonb, $3, $4::text[])
+     ON CONFLICT (slug) DO UPDATE SET details = EXCLUDED.details, draft = EXCLUDED.draft, images = EXCLUDED.images`,
+    [slug, JSON.stringify(details), draft, images],
+  );
 }
 
 export async function deleteVehicle(slug: string) {
-  await database(table, { slug: `eq.${slug}` }, { method: 'DELETE' });
+  await query(`DELETE FROM ${table} WHERE slug = $1`, [slug]);
 }

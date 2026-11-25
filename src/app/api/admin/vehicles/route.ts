@@ -1,4 +1,4 @@
-import { adminChallenge, hasAdminAccess } from '@/lib/admin-access';
+import { getAdminSession, hasPermission } from '@/lib/admin-access';
 import type { LocalVehicle } from '@/lib/local-vehicles';
 import { deleteVehicle, listAdmin, storeVehicle, validSlug } from '@/lib/vehicle-storage';
 
@@ -6,6 +6,8 @@ const maxBody = 7 * 1024 * 1024;
 const textFields = ['brand', 'model', 'version', 'plate', 'transmission', 'fuel', 'color', 'type', 'notes'] as const;
 const numbers = ['year', 'manufactureYear', 'mileage', 'price'] as const;
 const bad = (message: string, status = 400) => Response.json({ message }, { status });
+const unauthorized = () => bad('Sessão administrativa necessária.', 401);
+const forbidden = () => bad('Seu usuário não tem permissão para esta ação.', 403);
 
 async function readBody(request: Request) {
   const reader = request.body?.getReader();
@@ -39,7 +41,9 @@ function validVehicle(v: Partial<LocalVehicle> | undefined): v is LocalVehicle {
 }
 
 export async function GET(request: Request) {
-  if (!hasAdminAccess(request.headers)) return adminChallenge();
+  const session = await getAdminSession(request.headers);
+  if (!session) return unauthorized();
+  if (!hasPermission(session, 'vehicles:read')) return forbidden();
   try {
     return Response.json(await listAdmin(), { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {
@@ -48,7 +52,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!hasAdminAccess(request.headers)) return adminChallenge();
+  const session = await getAdminSession(request.headers);
+  if (!session) return unauthorized();
+  if (!hasPermission(session, 'vehicles:write')) return forbidden();
   if (request.headers.get('origin') !== process.env.APP_ORIGIN) return bad('Origem inválida.', 403);
   if (request.headers.get('content-type') !== 'application/json') return bad('Formato inválido.', 415);
   let body;
@@ -71,7 +77,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!hasAdminAccess(request.headers)) return adminChallenge();
+  const session = await getAdminSession(request.headers);
+  if (!session) return unauthorized();
+  if (!hasPermission(session, 'vehicles:delete')) return forbidden();
   if (request.headers.get('origin') !== process.env.APP_ORIGIN) return bad('Origem inválida.', 403);
   const slug = new URL(request.url).searchParams.get('slug');
   if (!slug || !validSlug(slug)) return bad('Veículo inválido.');

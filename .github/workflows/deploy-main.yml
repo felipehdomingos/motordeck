@@ -1,0 +1,93 @@
+name: Deploy MotorDeck
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-2
+  SERVICE_NAME: motordeck
+  REPOSITORY_NAME: motordeck
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::631718646750:role/motordeck-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Login to Amazon ECR
+        id: ecr
+        run: |
+          REGISTRY="${{ github.repository_owner }}"
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+
+      - name: Build and push image
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/$REPOSITORY_NAME:${GITHUB_SHA}"
+          docker build --pull -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Discover network and secrets
+        id: aws-resources
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          SECRET_ARN="$(aws secretsmanager describe-secret --secret-id "motordeck/$SERVICE_NAME/production" --query ARN --output text)"
+          VPC_ID="$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)"
+          SERVICE_SG="$(aws ec2 describe-security-groups --filters Name=vpc-id,Values="$VPC_ID" Name=group-name,Values=motordeck-ecs --query 'SecurityGroups[0].GroupId' --output text)"
+          mapfile -t SUBNETS < <(aws ec2 describe-subnets --filters Name=vpc-id,Values="$VPC_ID" Name=map-public-ip-on-launch,Values=true --query 'Subnets | sort_by(@, &AvailabilityZone)[:2].SubnetId' --output text)
+          echo "secret_arn=$SECRET_ARN" >> "$GITHUB_OUTPUT"
+          echo "service_sg=$SERVICE_SG" >> "$GITHUB_OUTPUT"
+          echo "subnet_a=${SUBNETS[0]}" >> "$GITHUB_OUTPUT"
+          echo "subnet_b=${SUBNETS[1]}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare CloudWatch log group
+        run: |
+          aws logs create-log-group --log-group-name /ecs/$SERVICE_NAME 2>/dev/null || true
+          aws logs put-retention-policy --log-group-name /ecs/$SERVICE_NAME --retention-in-days 14
+
+      - name: Create or update ECS Express Mode service
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          SECRET_ARN: ${{ steps.aws-resources.outputs.secret_arn }}
+          SERVICE_SG: ${{ steps.aws-resources.outputs.service_sg }}
+          SUBNET_A: ${{ steps.aws-resources.outputs.subnet_a }}
+          SUBNET_B: ${{ steps.aws-resources.outputs.subnet_b }}
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          EXEC_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-task-execution"
+          INFRA_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-express-infra"
+          APP_ORIGIN="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws"
+          PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
+          SERVICE_ARN="$(aws ecs list-services --cluster default --query "serviceArns[?ends_with(@, '/$SERVICE_NAME')]" --output text || true)"
+          if [ -n "$SERVICE_ARN" ] && [ "$SERVICE_ARN" != "None" ]; then
+            aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY" --monitor-resources DEPLOYMENT --monitor-mode TEXT-ONLY
+          else
+            REQUEST="$(jq -cn --arg name "$SERVICE_NAME" --arg exec "$EXEC_ROLE" --arg infra "$INFRA_ROLE" --argjson primary "$PRIMARY" --arg sg "$SERVICE_SG" --arg a "$SUBNET_A" --arg b "$SUBNET_B" '{serviceName:$name,executionRoleArn:$exec,infrastructureRoleArn:$infra,healthCheckPath:"/api/health",primaryContainer:$primary,networkConfiguration:{securityGroups:[$sg],subnets:[$a,$b]},cpu:"512",memory:"1024",scalingTarget:{minTaskCount:1,maxTaskCount:2,autoScalingMetric:"AVERAGE_CPU",autoScalingTargetValue:60},tags:[{key:"Project",value:"MotorDeck"},{key:"ManagedBy",value:"GitHubActions"}]}')"
+            aws ecs create-express-gateway-service --cli-input-json "$REQUEST" --monitor-resources DEPLOYMENT --monitor-mode TEXT-ONLY
+          fi

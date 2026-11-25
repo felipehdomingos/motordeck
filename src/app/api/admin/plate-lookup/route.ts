@@ -1,4 +1,4 @@
-import { adminChallenge, hasAdminAccess } from '@/lib/admin-access';
+import { getAdminSession, hasPermission } from '@/lib/admin-access';
 import { lookupPlate, PlateLookupError, providerErrors } from '@/lib/placaefipe-server';
 import { normalizePlate } from '@/lib/plate-lookup';
 
@@ -6,7 +6,9 @@ const headers = { 'Cache-Control': 'private, no-store' };
 const error = (message: string, status: number) => Response.json({ message }, { status, headers });
 
 export async function POST(request: Request) {
-  if (!hasAdminAccess(request.headers)) return adminChallenge();
+  const session = await getAdminSession(request.headers);
+  if (!session) return error('Sessão administrativa necessária.', 401);
+  if (!hasPermission(session, 'plate:lookup')) return error('Seu usuário não tem permissão para consultar placas.', 403);
   const origin = process.env.APP_ORIGIN;
   if (!origin || request.headers.get('origin') !== origin) return error('Origem inválida.', 403);
 
