@@ -86,9 +86,18 @@ $secretPolicyPath = Join-Path $env:TEMP "motordeck-secret-policy-$([Guid]::NewGu
 Invoke-AwsJson @('iam', 'put-role-policy', '--role-name', $execRoleName, '--policy-name', 'ReadMotorDeckSecrets', '--policy-document', "file://$secretPolicyPath", '--region', $Region) | Out-Null
 
 $providerArn = "arn:aws:iam::${accountId}:oidc-provider/token.actions.githubusercontent.com"
+$githubThumbprint = '6938fd4d98bab03faadb97b34396831e3780aea1'
 $providers = @(Invoke-AwsJson @('iam', 'list-open-id-connect-providers', '--region', $Region)).OpenIDConnectProviderList.Arn
 if ($providers -notcontains $providerArn) {
-  Invoke-AwsJson @('iam', 'create-open-id-connect-provider', '--url', 'https://token.actions.githubusercontent.com', '--client-id-list', 'sts.amazonaws.com', '--thumbprint-list', '6938fd4d98bab03faadb97b34396831e3780aea1', '--region', $Region) | Out-Null
+  Invoke-AwsJson @('iam', 'create-open-id-connect-provider', '--url', 'https://token.actions.githubusercontent.com', '--client-id-list', 'sts.amazonaws.com', '--thumbprint-list', $githubThumbprint, '--region', $Region) | Out-Null
+} else {
+  $provider = Invoke-AwsJson @('iam', 'get-open-id-connect-provider', '--open-id-connect-provider-arn', $providerArn, '--region', $Region)
+  if (@($provider.ClientIDList) -notcontains 'sts.amazonaws.com') {
+    Invoke-AwsJson @('iam', 'add-client-id-to-open-id-connect-provider', '--open-id-connect-provider-arn', $providerArn, '--client-id', 'sts.amazonaws.com', '--region', $Region) | Out-Null
+  }
+  if (@($provider.ThumbprintList) -notcontains $githubThumbprint) {
+    Invoke-AwsJson @('iam', 'update-open-id-connect-provider-thumbprint', '--open-id-connect-provider-arn', $providerArn, '--thumbprint-list', $githubThumbprint, '--region', $Region) | Out-Null
+  }
 }
 
 $githubTrustPath = Join-Path $env:TEMP "motordeck-github-trust-$([Guid]::NewGuid()).json"
