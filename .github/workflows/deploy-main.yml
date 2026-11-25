@@ -46,6 +46,11 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           IMAGE="$REGISTRY/$REPOSITORY_NAME:${GITHUB_SHA}"
+          if aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "Imagem $IMAGE já existe no ECR; reutilizando a tag imutável."
+            echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Do not publish BuildKit provenance/SBOM attestations as a second
           # OCI manifest; ECR push only needs the image manifest permissions.
           docker build --pull --provenance=false --sbom=false -t "$IMAGE" .
