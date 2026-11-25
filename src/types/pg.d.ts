@@ -1,7 +1,7 @@
 declare module 'pg' {
   export type PoolConfig = {
     connectionString?: string;
-    ssl?: false | { rejectUnauthorized?: boolean };
+    ssl?: false | { rejectUnauthorized?: boolean; ca?: string };
     max?: number;
     connectionTimeoutMillis?: number;
     idleTimeoutMillis?: number;

@@ -9,11 +9,12 @@ RUN npm run build
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
-ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
+ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 DATABASE_SSL_CA=/app/certs/rds-global-bundle.pem
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 COPY --chown=node:node deploy/start.mjs ./start.mjs
+COPY --chown=node:node deploy/certs/rds-global-bundle.pem ./certs/rds-global-bundle.pem
 USER node
 EXPOSE 3000
 CMD ["node", "start.mjs"]

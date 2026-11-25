@@ -9,3 +9,5 @@
 !public/**
 !deploy/
 !deploy/start.mjs
+!deploy/certs/
+!deploy/certs/rds-global-bundle.pem
