@@ -61,7 +61,19 @@ jobs:
           SECRET_ARN="$(aws secretsmanager describe-secret --secret-id "motordeck/$SERVICE_NAME/production" --query ARN --output text)"
           VPC_ID="$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)"
           SERVICE_SG="$(aws ec2 describe-security-groups --filters Name=vpc-id,Values="$VPC_ID" Name=group-name,Values=motordeck-ecs --query 'SecurityGroups[0].GroupId' --output text)"
-          mapfile -t SUBNETS < <(aws ec2 describe-subnets --filters Name=vpc-id,Values="$VPC_ID" Name=map-public-ip-on-launch,Values=true --query 'Subnets | sort_by(@, &AvailabilityZone)[:2].SubnetId' --output text)
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+            echo "Nenhuma VPC default encontrada em $AWS_REGION." >&2
+            exit 1
+          fi
+          if [ -z "$SERVICE_SG" ] || [ "$SERVICE_SG" = "None" ]; then
+            echo "Security group motordeck-ecs não encontrado na VPC $VPC_ID." >&2
+            exit 1
+          fi
+          mapfile -t SUBNETS < <(aws ec2 describe-subnets --filters Name=vpc-id,Values="$VPC_ID" Name=map-public-ip-on-launch,Values=true --query 'Subnets | sort_by(@, &AvailabilityZone)[:2].SubnetId' --output text | tr '\t' '\n' | sed '/^None$/d;/^$/d')
+          if [ "${#SUBNETS[@]}" -lt 2 ]; then
+            echo "A VPC $VPC_ID precisa de pelo menos duas subnets públicas." >&2
+            exit 1
+          fi
           echo "secret_arn=$SECRET_ARN" >> "$GITHUB_OUTPUT"
           echo "service_sg=$SERVICE_SG" >> "$GITHUB_OUTPUT"
           echo "subnet_a=${SUBNETS[0]}" >> "$GITHUB_OUTPUT"
