@@ -46,7 +46,7 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           IMAGE="$REGISTRY/$REPOSITORY_NAME:${GITHUB_SHA}"
-          if aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+          if aws ecr batch-get-image --repository-name "$REPOSITORY_NAME" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
             echo "Imagem $IMAGE já existe no ECR; reutilizando a tag imutável."
             echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
             exit 0
