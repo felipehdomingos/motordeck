@@ -66,7 +66,7 @@ $policy = @{
     @{ Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:BatchGetImage','ecr:CompleteLayerUpload','ecr:InitiateLayerUpload','ecr:PutImage','ecr:UploadLayerPart','ecr:DescribeRepositories'); Resource = $repoArn },
     @{ Effect = 'Allow'; Action = @('ecs:CreateCluster','ecs:CreateGateway','ecs:AssociateGatewayWithCluster','ecs:RegisterTaskDefinition','ecs:CreateExpressGatewayService','ecs:UpdateExpressGatewayService','ecs:DescribeExpressGatewayService','ecs:MonitorExpressGatewayService','ecs:ListServices','ecs:DescribeServices','ecs:DescribeClusters','ecs:TagResource'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('ec2:DescribeVpcs','ec2:DescribeSubnets','ec2:DescribeSecurityGroups'); Resource = '*' },
-    @{ Effect = 'Allow'; Action = @('logs:CreateLogGroup','logs:PutRetentionPolicy','logs:FilterLogEvents'); Resource = '*' },
+    @{ Effect = 'Allow'; Action = @('logs:CreateLogGroup','logs:PutRetentionPolicy','logs:DescribeLogStreams','logs:FilterLogEvents'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('secretsmanager:DescribeSecret'); Resource = $secretArn },
     @{ Effect = 'Allow'; Action = @('iam:CreateServiceLinkedRole'); Resource = '*'; Condition = @{ StringEquals = @{ 'iam:AWSServiceName' = 'ecs.amazonaws.com' } } },
     @{ Effect = 'Allow'; Action = @('iam:PassRole'); Resource = @($execRoleArn, $infraRoleArn); Condition = @{ StringEquals = @{ 'iam:PassedToService' = @('ecs.amazonaws.com','ecs-tasks.amazonaws.com') } } }
