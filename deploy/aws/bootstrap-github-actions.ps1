@@ -115,7 +115,7 @@ $githubPolicy = @{
   Version = '2012-10-17'
   Statement = @(
     @{ Effect = 'Allow'; Action = @('ecr:GetAuthorizationToken'); Resource = '*' },
-    @{ Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:CompleteLayerUpload','ecr:InitiateLayerUpload','ecr:PutImage','ecr:UploadLayerPart','ecr:DescribeRepositories'); Resource = $repoArn },
+    @{ Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:BatchGetImage','ecr:CompleteLayerUpload','ecr:InitiateLayerUpload','ecr:PutImage','ecr:UploadLayerPart','ecr:DescribeRepositories'); Resource = $repoArn },
     @{ Effect = 'Allow'; Action = @('ecs:CreateExpressGatewayService','ecs:UpdateExpressGatewayService','ecs:DescribeExpressGatewayService','ecs:MonitorExpressGatewayService','ecs:ListServices'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('ec2:DescribeVpcs','ec2:DescribeSubnets','ec2:DescribeSecurityGroups'); Resource = '*' },
     @{ Effect = 'Allow'; Action = @('logs:CreateLogGroup','logs:PutRetentionPolicy'); Resource = '*' },
