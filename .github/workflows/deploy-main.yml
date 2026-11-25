@@ -122,7 +122,7 @@ jobs:
           set -euo pipefail
           URL="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws/api/health"
           for attempt in $(seq 1 36); do
-            STATUS="$(curl -L -sS -o /tmp/motordeck-health.json -w '%{http_code}' "$URL" || true)"
+            STATUS="$(curl --connect-timeout 5 --max-time 10 -L -sS -o /tmp/motordeck-health.json -w '%{http_code}' "$URL" || true)"
             if [ "$STATUS" = "200" ]; then
               cat /tmp/motordeck-health.json
               exit 0
