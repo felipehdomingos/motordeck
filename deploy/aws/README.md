@@ -37,6 +37,8 @@ Se o workflow informar `Not authorized to perform sts:AssumeRoleWithWebIdentity`
 .\deploy\aws\repair-github-oidc.ps1 -Region us-east-2
 ```
 
+Se o push da imagem falhar com `403 Forbidden` ao consultar um manifesto no ECR, após integrar a correção à `main`, execute novamente o bootstrap atualizado da `main` para aplicar a permissão `ecr:BatchGetImage` ao role de deploy. Use o mesmo token inicial do administrador e a mesma senha do PostgreSQL, pois o bootstrap atualiza o secret de produção. Depois execute o workflow novamente.
+
 O workflow usa GitHub OIDC com credenciais AWS temporárias; nenhuma access key permanente fica no GitHub.
 
 ## Variáveis do serviço
