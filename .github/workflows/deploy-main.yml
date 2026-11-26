@@ -13,6 +13,9 @@ env:
   AWS_REGION: us-east-2
   SERVICE_NAME: motordeck
   REPOSITORY_NAME: motordeck
+  # Domínio principal do cliente inicial (mesquiatti) e domínio do painel da plataforma.
+  APP_ORIGIN_URL: https://brunomesquiatti.com.br
+  PLATFORM_HOSTS_VALUE: painel.motordeck.com.br
 
 jobs:
   deploy:
@@ -124,27 +127,16 @@ jobs:
           aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com 2>/dev/null || true
           EXEC_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-task-execution"
           INFRA_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-express-infra"
+          PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN_URL" --arg platform "$PLATFORM_HOSTS_VALUE" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin},{name:"PLATFORM_HOSTS",value:$platform}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}')"
           SERVICE_ARN="$(aws ecs list-services --cluster "$CLUSTER_NAME" --query "serviceArns[?ends_with(@, '/$SERVICE_NAME')]" --output text || true)"
           if [ -n "$SERVICE_ARN" ] && [ "$SERVICE_ARN" != "None" ]; then
-            APP_ORIGIN="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws"
-            PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
             UPDATE_RESULT="$(aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY")"
             ENDPOINT="$(jq -r '.service.targetConfiguration.ingressPaths[0].endpoint // empty' <<< "$UPDATE_RESULT")"
-            if [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "None" ]; then
-              PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$ENDPOINT" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
-              aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY" >/dev/null
-            fi
           else
-            APP_ORIGIN="https://$SERVICE_NAME.ecs.$AWS_REGION.on.aws"
-            PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
             REQUEST="$(jq -cn --arg name "$SERVICE_NAME" --arg cluster "$CLUSTER_ARN" --arg exec "$EXEC_ROLE" --arg infra "$INFRA_ROLE" --argjson primary "$PRIMARY" --arg sg "$SERVICE_SG" --arg a "$SUBNET_A" --arg b "$SUBNET_B" '{serviceName:$name,cluster:$cluster,executionRoleArn:$exec,infrastructureRoleArn:$infra,healthCheckPath:"/api/health",primaryContainer:$primary,networkConfiguration:{securityGroups:[$sg],subnets:[$a,$b]},cpu:"512",memory:"1024",scalingTarget:{minTaskCount:1,maxTaskCount:2,autoScalingMetric:"AVERAGE_CPU",autoScalingTargetValue:60},tags:[{key:"Project",value:"MotorDeck"},{key:"ManagedBy",value:"GitHubActions"}]}')"
             CREATE_RESULT="$(aws ecs create-express-gateway-service --cli-input-json "$REQUEST")"
             SERVICE_ARN="$(jq -r '.service.serviceArn' <<< "$CREATE_RESULT")"
             ENDPOINT="$(jq -r '.service.targetConfiguration.ingressPaths[0].endpoint // empty' <<< "$CREATE_RESULT")"
-            PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$ENDPOINT" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}' )"
-            if [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "None" ]; then
-              aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY" >/dev/null
-            fi
           fi
           if [ -z "$SERVICE_ARN" ] || [ "$SERVICE_ARN" = "None" ]; then
             echo "Não foi possível obter o ARN do serviço ECS Express." >&2
@@ -156,6 +148,27 @@ jobs:
           fi
           echo "service_arn=$SERVICE_ARN" >> "$GITHUB_OUTPUT"
           echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
+
+      - name: Sync custom domain rules on the load balancer
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # O Express Mode troca os pesos dos grupos de destino a cada deploy; as regras dos domínios próprios copiam a ação atual.
+          LB_ARN="$(aws elbv2 describe-load-balancers --names ecs-express-gateway-alb-d1f7acc9 --query 'LoadBalancers[0].LoadBalancerArn' --output text)"
+          LISTENER="$(aws elbv2 describe-listeners --load-balancer-arn "$LB_ARN" --query 'Listeners[?Port==`443`]|[0].ListenerArn' --output text)"
+          aws elbv2 describe-rules --listener-arn "$LISTENER" --query "Rules[?Conditions[0].Values[0] && ends_with(Conditions[0].Values[0], '.on.aws')]|[0].Actions" --output json > /tmp/express-actions.json
+          if [ "$(cat /tmp/express-actions.json)" = "null" ]; then echo "Regra do Express não encontrada." >&2; exit 1; fi
+          sync_rule() {
+            PRIORITY="$1"; shift
+            RULE_ARN="$(aws elbv2 describe-rules --listener-arn "$LISTENER" --query "Rules[?Priority=='$PRIORITY']|[0].RuleArn" --output text)"
+            if [ -z "$RULE_ARN" ] || [ "$RULE_ARN" = "None" ]; then
+              aws elbv2 create-rule --listener-arn "$LISTENER" --priority "$PRIORITY" --conditions Field=host-header,Values="$1" --actions file:///tmp/express-actions.json >/dev/null
+            else
+              aws elbv2 modify-rule --rule-arn "$RULE_ARN" --actions file:///tmp/express-actions.json >/dev/null
+            fi
+          }
+          sync_rule 100 motordeck.com.br,www.motordeck.com.br,painel.motordeck.com.br
+          sync_rule 101 brunomesquiatti.com.br,www.brunomesquiatti.com.br,admin.brunomesquiatti.com.br
 
       - name: Verify public health endpoint
         env:
