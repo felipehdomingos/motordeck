@@ -16,6 +16,8 @@ env:
   # Domínio principal do cliente inicial (mesquiatti) e domínio do painel da plataforma.
   APP_ORIGIN_URL: https://brunomesquiatti.com.br
   PLATFORM_HOSTS_VALUE: painel.motordeck.com.br
+  # Domínios em que admin.<dominio> serve só o painel e o endereço principal serve só o site.
+  ADMIN_SPLIT_DOMAINS_VALUE: brunomesquiatti.com.br
 
 jobs:
   deploy:
@@ -127,7 +129,7 @@ jobs:
           aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com 2>/dev/null || true
           EXEC_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-task-execution"
           INFRA_ROLE="arn:aws:iam::$ACCOUNT_ID:role/motordeck-ecs-express-infra"
-          PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN_URL" --arg platform "$PLATFORM_HOSTS_VALUE" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin},{name:"PLATFORM_HOSTS",value:$platform}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}')"
+          PRIMARY="$(jq -cn --arg image "$IMAGE" --arg origin "$APP_ORIGIN_URL" --arg platform "$PLATFORM_HOSTS_VALUE" --arg split "$ADMIN_SPLIT_DOMAINS_VALUE" --arg secret "$SECRET_ARN" '{image:$image,containerPort:3000,awsLogsConfiguration:{logGroup:("/ecs/"+env.SERVICE_NAME),logStreamPrefix:"ecs"},environment:[{name:"APP_ENV",value:"production"},{name:"APP_ORIGIN",value:$origin},{name:"PLATFORM_HOSTS",value:$platform},{name:"ADMIN_SPLIT_DOMAINS",value:$split}],secrets:[{name:"DATABASE_URL",valueFrom:($secret+":DATABASE_URL::")},{name:"ADMIN_SETUP_TOKEN",valueFrom:($secret+":ADMIN_SETUP_TOKEN::")}]}')"
           SERVICE_ARN="$(aws ecs list-services --cluster "$CLUSTER_NAME" --query "serviceArns[?ends_with(@, '/$SERVICE_NAME')]" --output text || true)"
           if [ -n "$SERVICE_ARN" ] && [ "$SERVICE_ARN" != "None" ]; then
             UPDATE_RESULT="$(aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$PRIMARY")"

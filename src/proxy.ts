@@ -1,8 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { adminSessionCookie, platformSessionCookie } from '@/lib/admin-access';
+import { hostRedirect, splitDomains } from '@/lib/host-routing';
 
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  const moved = hostRedirect(request.headers.get('host'), path, request.nextUrl.search, splitDomains());
+  if (moved) return NextResponse.redirect(moved);
   const admin = path === '/admin' || path.startsWith('/admin/') || path.startsWith('/api/admin/');
   // Plataforma (dono): a checagem real de sessão e domínio fica na página e nas rotas; aqui só evita cache e corta o óbvio.
   const platformPublic = path === '/plataforma/login' || ['session', 'setup', 'login', 'logout'].some(name => path === `/api/platform/${name}`);
